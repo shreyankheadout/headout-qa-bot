@@ -270,6 +270,14 @@ class Orchestrator:
         self.store.append_events(run.scenario_id, events)
         return run
 
+    # After the bot's first reply lands, it often follows up with one or more
+    # extra messages a few seconds later (e.g. a closing "anything else I can
+    # help with?") -- without this settle window, the very next poll cycle
+    # never happens if the customer engine decides the conversation is over
+    # right after the first reply, so those trailing messages are silently
+    # dropped even though the Sunshine API has them.
+    BOT_SETTLE_SECONDS = 8.0
+
     async def _wait_for_bot(
         self, conversation_id: str, known_bot_ids: set[str], events: list[Event]
     ) -> tuple[list[Event], bool]:
@@ -281,13 +289,30 @@ class Orchestrator:
             messages = await self.sunco.list_messages(conversation_id)
             new = [m for m in messages if m.is_bot and m.id not in known_bot_ids]
             if new:
-                for message in new:
-                    known_bot_ids.add(message.id)
-                    text = message.text or f"[{message.content_type or 'unknown'}]"
-                    events.append(Event(role="bot", text=text, ts=message.received, message_id=message.id, source=message.source_type))
+                self._record_bot_messages(new, known_bot_ids, events)
+                await self._settle_trailing_bot_messages(conversation_id, known_bot_ids, events)
                 return events, False
             await asyncio.sleep(self.settings.poll_interval_seconds)
         return events, True
+
+    @staticmethod
+    def _record_bot_messages(new, known_bot_ids: set[str], events: list[Event]) -> None:
+        for message in new:
+            known_bot_ids.add(message.id)
+            text = message.text or f"[{message.content_type or 'unknown'}]"
+            events.append(Event(role="bot", text=text, ts=message.received, message_id=message.id, source=message.source_type))
+
+    async def _settle_trailing_bot_messages(
+        self, conversation_id: str, known_bot_ids: set[str], events: list[Event]
+    ) -> None:
+        settle_deadline = time.monotonic() + self.BOT_SETTLE_SECONDS
+        while time.monotonic() < settle_deadline:
+            await asyncio.sleep(self.settings.poll_interval_seconds)
+            messages = await self.sunco.list_messages(conversation_id)
+            new = [m for m in messages if m.is_bot and m.id not in known_bot_ids]
+            if new:
+                self._record_bot_messages(new, known_bot_ids, events)
+                settle_deadline = time.monotonic() + self.BOT_SETTLE_SECONDS
 
     @staticmethod
     def _escalation_pending(events: list[Event]) -> bool:
