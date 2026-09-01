@@ -5,36 +5,62 @@ Google Sheet (`1hGrZbcsOjNHNnidsZxp-QdVTTQcSHtOHqz6_HJMyqgA`), built from the
 Q3 2026 real support-chat export (`Q32026_transcript_metadata.csv`, 4,549 rows).
 
 It replaces the old 54-row sheet (one boilerplate row per L1/L2/L3 leaf, no
-guest-mood variation) with 161 rows covering:
+guest-mood variation) with **308 rows** — every one of the 77 real L1/L2/L3
+leaves (including the "Fradulent" placeholder) **times all 4 moods**
+(`happy` / `okay` / `frustrated` / `angry`), covering:
 
 - All 11 real L1 categories seen in production (the old sheet only had 6 —
   Ticket Redemption Details, Refund Related, Payment Failure, Reserve Now Pay
   Later, Vendor Query, and Service Issues were missing entirely).
-- A new `mood` column (`happy` / `okay` / `frustrated` / `angry`), one row per
-  (L1/L2/L3 leaf, significant mood tier) combination actually observed in the
-  real sentiment data (tier counted as "significant" if it has >=2 occurrences
-  or >=8% share within that leaf — avoids manufacturing e.g. an "angry" row
-  off a single outlier chat).
+- **Full mood coverage, not just what the sample happened to show.** Moods
+  are a guest-behavior axis independent of category — any leaf can plausibly
+  happen angry even if this quarter's sample only caught it calm — so every
+  leaf gets all 4 mood rows. 200/308 rows are **grounded**: their mock-API
+  fields come from the real per-(leaf, mood) majority vote in the transcript
+  data. The other 104 are **fallback**: that specific (leaf, mood) slice had
+  zero real examples this quarter, so the fields fall back to the leaf's
+  overall (mood-blind) majority vote instead of being fabricated from
+  nothing. `leaf_mood_data.json` carries a `grounded`/`n` field per group if
+  you want to see which is which.
 - Mock-API fields (`isCancellable`, `isReschedulable`, `bookingStatus`,
-  `isSLABreached`, etc.) seeded from the majority values found in the real
-  transcripts' embedded "Booking Details" block for that leaf, with the
+  `isSLABreached`, etc.) seeded from those majority values, with the
   cancel/reschedule/extend fact deliberately set by mood (denied <->
   frustrated/angry, approved <-> okay/happy) to keep both TRUE/FALSE coverage
-  for grading.
+  for grading — verified with a full pass that all 308 rows' scenario_text
+  claims agree with their boolean ground truth (zero mismatches).
 - Hand-templated, mood-calibrated `scenario_text` per row (not the old
   "You are an automated tester..." boilerplate, which `user_engine.py`'s own
   `_is_meta_instruction` filter was silently stripping for the scripted
-  engine).
-- The pre-existing "Fradulent" row (kept, unchanged spelling) is carried
-  forward as a single placeholder since this quarter's real data has zero
-  examples of it — not fabricated.
+  engine) — each one now spells out the concrete booking, a specific
+  situational ask, whether the thing being asked for is actually true, and a
+  turn-by-turn mood brief (avg. ~600 characters, up from ~150).
+- Cross-checked against a real production Zendesk booking-payload sample:
+  `bookingStatus` now uses the real `CANCELLED` (double-L) spelling instead
+  of the old sheet's `CANCELED`; `alternatesLink` is populated whenever
+  `alternatesStatus` is actually `SENT` (previously blank in every row,
+  including the ones claiming alternates were sent); `resolutionTime` now
+  varies (shorter when `isSLABreached` is false, longer when true) instead of
+  being hardcoded to "30 minutes" everywhere. `statusCode` stays blank —
+  that matches the original sheet's own convention and isn't a field the
+  code reads.
+- Fixed a real bug this surfaced along the way: `scenarios.py` derives which
+  fact gets graded by scanning `scenario_text` for keywords, and a couple of
+  leaf labels ("Flight/train Cancellation" under Modification Request, "Tour
+  Cancelled By SP" under Service Issues) contained "cancel" as an incidental
+  word, silently misdirecting grading onto the wrong fact. Fixed with
+  targeted detail-text overrides for those two leaves; verified every L1 now
+  resolves to one single, correct node.
 
 ## How to apply it
 
 This session has no tool that can write cell values into an existing Google
-Sheet (only "create a new file" or "edit a file's title/folder" are
-available) — so the update to `1hGrZbcsOjNHNnidsZxp-QdVTTQcSHtOHqz6_HJMyqgA`
-has to be applied by hand, in place, rather than done here automatically.
+Sheet — the available Drive tools can only "create a new file" or "edit a
+file's title/folder", nothing that touches cell contents. Writing to Sheets
+in place requires OAuth2 or a service-account credential; the repo's own
+`google_sheets_api_key` setting is a plain API key, which Google's Sheets API
+only allows for *reading* a publicly-viewable sheet, not writing. So the
+update to `1hGrZbcsOjNHNnidsZxp-QdVTTQcSHtOHqz6_HJMyqgA` has to be applied by
+hand, in place, rather than done here automatically.
 
 To update the **existing** `bookings` tab (gid=0) without spinning up another
 separate spreadsheet (which is what happens if you import as "new
@@ -48,7 +74,7 @@ spreadsheet" or "insert new sheet"):
    overwrites the active tab's contents in place, keeping the same tab/gid
    and URL, and leaves the `scenarios` tab untouched.
 5. Confirm the header row now ends in `L1, L2, L3, mood` (45 columns) and
-   there are 161 data rows.
+   there are 308 data rows.
 6. Re-run `headout-qa run --dry-run` to confirm the new rows parse.
 
 ## Regenerating

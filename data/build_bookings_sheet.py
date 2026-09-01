@@ -1,7 +1,9 @@
 """Build the rebuilt `bookings` tab CSV for the QA ground-truth sheet.
 
-Reads leaf_mood_data.json (160 significant (L1,L2,L3,mood) groups extracted from the
-real Q3 2026 transcript data) and emits one scenario row per group, with:
+Reads leaf_mood_data.json (v2: full cross-product -- every one of the 76 real
+L1/L2/L3 leaves x all 4 moods, grounded in real per-slice data where it exists and
+falling back to the leaf's overall majority vote where a mood has zero real examples
+this quarter) and emits one scenario row per (leaf, mood) pair, with:
   - node derived from L1 (drives which fact grader.py checks)
   - isCancellable / isReschedulable / has-extended-validity set deliberately by mood
     for the node's core fact (denial <-> frustrated/angry, approval <-> okay/happy),
@@ -23,6 +25,8 @@ import re
 
 DATA_PATH = "/tmp/claude-0/-home-user-headout-qa-bot/4912fdb0-3cbd-5d0b-943d-608d5f687798/scratchpad/leaf_mood_data.json"
 OUT_PATH = "/tmp/claude-0/-home-user-headout-qa-bot/4912fdb0-3cbd-5d0b-943d-608d5f687798/scratchpad/new_bookings.csv"
+
+ALL_MOODS = ("happy", "okay", "frustrated", "angry")
 
 HEADER = [
     "bookingId", "email", "booking_status", "scenario_text", "isCancellable", "bookingStatus",
@@ -80,6 +84,9 @@ TOURS = [
          redemption="Please use the VIP entrance located on the east side of the building. Present your voucher to the VIP concierge for immediate assistance.",
          machine="BARCODE_UPC_A"),
 ]
+
+RESOLUTION_TIMES_OK = ["30 minutes", "1 hour", "2 hours", "4 hours"]
+RESOLUTION_TIMES_BREACHED = ["1 day", "7 days", "30 days"]
 
 FIRST_NAMES = ["John", "Jane", "Michael", "Emily", "Christopher", "Ashley", "Matthew", "Amanda",
                "Joshua", "Brittany", "William", "Megan", "David", "Rachel", "James", "Samantha",
@@ -312,11 +319,18 @@ def main():
             "inventoryDateTime": f"2026-09-{(i % 28) + 1:02d}T{(i % 24):02d}:00:00Z",
             "refundReferenceNumber": "" if majority_refund_status == "N/A" else f"1234567{ticket_num}",
             "alternatesStatus": "" if majority_alt_status == "N/A" else majority_alt_status,
-            "alternatesLink": "",
+            # Real payload behavior: a link is only ever present once alternates were
+            # actually sent to the guest -- "NOT_SENT_FROM_BMS"/"N/A" stay blank, "SENT"
+            # gets a (redacted-style, matching the original sheet's convention) link.
+            "alternatesLink": f"[link removed]{ticket_num}" if majority_alt_status == "SENT" else "",
             "isMoreInfoRequested": "FALSE",
             "isSLABreached": str(bool(majority_sla)).upper() if majority_sla is not None else "FALSE",
             "isSameDayBooking": str(bool(majority_same_day)).upper() if majority_same_day is not None else "FALSE",
-            "resolutionTime": "30 minutes",
+            "resolutionTime": (
+                RESOLUTION_TIMES_BREACHED[i % len(RESOLUTION_TIMES_BREACHED)]
+                if majority_sla
+                else RESOLUTION_TIMES_OK[i % len(RESOLUTION_TIMES_OK)]
+            ),
             "isTextEtaBeforeDateOfExp": "FALSE",
             "ticketValidityType": validity_type,
             "ticketId": str(500100 + i),
@@ -346,44 +360,66 @@ def main():
         rows.append(row)
 
     # "Fradulent" (sic, matches the existing sheet's spelling) has zero examples in this
-    # quarter's real data -- keep the existing sheet's single row as a best-effort
-    # placeholder rather than fabricate mood variants with no grounding (flagged to the
-    # user as an open gap rather than guessed at).
-    i = len(rows)
-    tour = TOURS[i % len(TOURS)]
-    name = f"{FIRST_NAMES[i % len(FIRST_NAMES)]} {LAST_NAMES[(i * 7) % len(LAST_NAMES)]}"
-    booking_id = 80100000 + i
-    ticket_num = 40100000 + i
-    rows.append({
-        "bookingId": str(booking_id), "email": "shreyank.prabhu@headout.com",
-        "booking_status": "PENDING",
-        "scenario_text": (
-            f"The guest has a booking for {tour['name']} that shows up on their account, but they say "
-            "they never made it and believes their account or payment details were used without their "
-            "knowledge. They open the chat reporting the suspicious booking and asking for it to be "
-            "investigated and reversed immediately, including a refund of any charge. "
-            "Mood: anxious and on edge — they want this treated urgently, ask pointed questions to make "
-            "sure the agent is actually taking real action (not just noting down a complaint), and push "
-            "back if the agent's response feels generic or slow."
+    # quarter's real data -- still gets all 4 mood variants (per the same
+    # every-leaf-gets-every-mood policy as the rest of the sheet) since a fraud report
+    # can plausibly land anywhere from anxious-but-calm to furious; there's just no real
+    # transcript to ground the mock-API fields in, so they're a reasonable placeholder.
+    FRAUD_MOOD_TEXT = {
+        "happy": (
+            "Mood: relieved-once-heard. They're worried but trust the process — once the agent "
+            "acknowledges the report and explains next steps, they relax and thank the agent."
         ),
-        "isCancellable": "TRUE", "bookingStatus": "PENDING", "isPendingCancellation": "FALSE",
-        "isReschedulable": "FALSE", "oopCancellationAllowed": "TRUE", "vendorId": str(1200 + i),
-        "tourId": str(2400 + i), "tourGroupId": str(3600 + i),
-        "inventoryDateTime": f"2026-09-{(i % 28) + 1:02d}T{(i % 24):02d}:00:00Z",
-        "refundReferenceNumber": "", "alternatesStatus": "", "alternatesLink": "",
-        "isMoreInfoRequested": "TRUE", "isSLABreached": "FALSE", "isSameDayBooking": "FALSE",
-        "resolutionTime": "2 hours", "isTextEtaBeforeDateOfExp": "FALSE",
-        "ticketValidityType": "NOT_EXTENDABLE", "ticketId": str(500100 + i),
-        "vendorRefId": f"VREF-{1100 + i}", "tourGroupName": tour["name"],
-        "primaryCustomerName": name, "guestCount": "1", "secureBookingId": f"SEC-{ticket_num}",
-        "fulfillmentType": "MANUAL", "statusCode": "", "variantName": tour["variant"],
-        "latitude": str(tour["lat"]), "longitude": str(tour["lon"]), "address": tour["address"],
-        "redemptionInstruction": tour["redemption"], "tourInventoryType": "FLEXIBLE_START_FLEXIBLE_DURATION",
-        "itineraryId": str(7100000 + i), "secureItineraryId": f"SECITIN-{7100000 + i}",
-        "machineCodeType": tour["machine"], "ticketValidityUntilDate": "",
-        "ticketValidityUntilDaysFromPurchase": "", "L1": "Fradulent", "L2": "", "L3": "",
-        "mood": "okay",
-    })
+        "okay": (
+            "Mood: anxious but composed. They want this treated urgently and ask pointed questions "
+            "to make sure the agent is actually taking real action, not just noting down a complaint, "
+            "but stay measured throughout."
+        ),
+        "frustrated": (
+            "Mood: frustrated. They're rattled by the situation and it shows — if the agent's first "
+            "response feels generic or slow, they push back once, more sharply, before accepting a "
+            "concrete next step."
+        ),
+        "angry": (
+            "Mood: angry and alarmed. They believe they're the victim of fraud and demand immediate "
+            "action; if the agent doesn't clearly commit to investigating and reversing the charge "
+            "right away, they push back firmly at least twice and ask for a supervisor."
+        ),
+    }
+    for mood in ALL_MOODS:
+        i = len(rows)
+        tour = TOURS[i % len(TOURS)]
+        name = f"{FIRST_NAMES[i % len(FIRST_NAMES)]} {LAST_NAMES[(i * 7) % len(LAST_NAMES)]}"
+        booking_id = 80100000 + i
+        ticket_num = 40100000 + i
+        rows.append({
+            "bookingId": str(booking_id), "email": "shreyank.prabhu@headout.com",
+            "booking_status": "PENDING",
+            "scenario_text": (
+                f"The guest has a booking for {tour['name']} that shows up on their account, but they say "
+                "they never made it and believes their account or payment details were used without their "
+                "knowledge. They open the chat reporting the suspicious booking and asking for it to be "
+                "investigated and reversed immediately, including a refund of any charge. "
+                + FRAUD_MOOD_TEXT[mood]
+            ),
+            "isCancellable": "TRUE", "bookingStatus": "PENDING", "isPendingCancellation": "FALSE",
+            "isReschedulable": "FALSE", "oopCancellationAllowed": "TRUE", "vendorId": str(1200 + i),
+            "tourId": str(2400 + i), "tourGroupId": str(3600 + i),
+            "inventoryDateTime": f"2026-09-{(i % 28) + 1:02d}T{(i % 24):02d}:00:00Z",
+            "refundReferenceNumber": "", "alternatesStatus": "", "alternatesLink": "",
+            "isMoreInfoRequested": "TRUE", "isSLABreached": "FALSE", "isSameDayBooking": "FALSE",
+            "resolutionTime": RESOLUTION_TIMES_OK[i % len(RESOLUTION_TIMES_OK)],
+            "isTextEtaBeforeDateOfExp": "FALSE",
+            "ticketValidityType": "NOT_EXTENDABLE", "ticketId": str(500100 + i),
+            "vendorRefId": f"VREF-{1100 + i}", "tourGroupName": tour["name"],
+            "primaryCustomerName": name, "guestCount": "1", "secureBookingId": f"SEC-{ticket_num}",
+            "fulfillmentType": "MANUAL", "statusCode": "", "variantName": tour["variant"],
+            "latitude": str(tour["lat"]), "longitude": str(tour["lon"]), "address": tour["address"],
+            "redemptionInstruction": tour["redemption"], "tourInventoryType": "FLEXIBLE_START_FLEXIBLE_DURATION",
+            "itineraryId": str(7100000 + i), "secureItineraryId": f"SECITIN-{7100000 + i}",
+            "machineCodeType": tour["machine"], "ticketValidityUntilDate": "",
+            "ticketValidityUntilDaysFromPurchase": "", "L1": "Fradulent", "L2": "", "L3": "",
+            "mood": mood,
+        })
 
     with open(OUT_PATH, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=HEADER)

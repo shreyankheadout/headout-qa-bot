@@ -1,12 +1,19 @@
 """Extract per-(leaf, mood) mock-API ground truth from the real transcript CSV.
 
-Reads Q32026_transcript_metadata.csv, buckets rows into significant (L1/L2/L3, mood)
-groups using the same threshold used during planning (tier needs >=2 occurrences or
->=8% share within the leaf), then for each group parses the embedded "Booking Details"
-block inside the Transcripts cell to get majority/representative mock-API field values,
-plus a couple of paraphrased real opening messages for scenario_text inspiration.
+v2: full cross-product coverage. Every one of the 76 real L1/L2/L3 leaves gets all
+4 moods (happy/okay/frustrated/angry), not just the moods that cleared a significance
+threshold in the sample -- moods are a guest-behavior axis independent of category, so
+a leaf with only "okay" examples this quarter can still plausibly happen angry.
 
-Output: leaf_mood_data.json - list of {l1, l2, l3, mood, n, fields: {...}, sample_openers: [...]}
+For a (leaf, mood) pair that HAS real transcripts tagged with that sentiment, the
+mock-API fields are the real per-slice majority vote (grounded=True, n=actual count).
+For a (leaf, mood) pair with zero real examples this quarter, the mock-API fields fall
+back to that leaf's overall (mood-blind) majority vote, since we have no slice-specific
+signal to draw on (grounded=False, n=0) -- this is flagged explicitly in the output so
+downstream consumers (and the generated sheet's own audit) know which rows are
+data-grounded vs extrapolated, rather than silently presenting both the same way.
+
+Output: leaf_mood_data.json - list of {l1, l2, l3, mood, n, grounded, fields: {...}, sample_openers: [...]}
 """
 from __future__ import annotations
 
@@ -17,6 +24,8 @@ import collections
 
 CSV_PATH = "/root/.claude/uploads/4912fdb0-3cbd-5d0b-943d-608d5f687798/111a4c04-Q32026_transcript_metadata.csv"
 OUT_PATH = "/tmp/claude-0/-home-user-headout-qa-bot/4912fdb0-3cbd-5d0b-943d-608d5f687798/scratchpad/leaf_mood_data.json"
+
+ALL_MOODS = ("happy", "okay", "frustrated", "angry")
 
 SENTIMENT_TO_MOOD = {
     "SENTIMENT__NEUTRAL": "okay",
@@ -50,16 +59,33 @@ def parse_booking_details(transcript: str) -> dict:
 
 
 def first_customer_line(transcript: str) -> str | None:
-    # Real transcripts look like: "(HH:MM:SS) Web User <id>: <text>"
     m = re.search(r"\(\d{2}:\d{2}:\d{2}\)\s*Web User [^:]+:\s*(.+)", transcript)
     if m:
-        line = m.group(1).strip()
-        return line[:220]
+        return m.group(1).strip()[:220]
     return None
 
 
 def leaf_key(l1, l2, l3):
     return (l1.strip(), l2.strip(), l3.strip())
+
+
+def majority_fields(rows: list[dict]) -> dict:
+    field_votes = collections.defaultdict(collections.Counter)
+    for r in rows:
+        for k, v in parse_booking_details(r["transcript"]).items():
+            field_votes[k][v] += 1
+    return {k: c.most_common(1)[0][0] for k, c in field_votes.items()}
+
+
+def sample_openers(rows: list[dict], limit=3) -> list[str]:
+    out = []
+    for r in rows:
+        line = first_customer_line(r["transcript"])
+        if line:
+            out.append(line)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def main():
@@ -74,100 +100,56 @@ def main():
                 t = t.strip()
                 if t.startswith("SENTIMENT__"):
                     sentiment_tag = t
-            mood = SENTIMENT_TO_MOOD.get(sentiment_tag)
             per_row.append(
                 {
                     "leaf": leaf_key(l1, l2, l3),
-                    "mood": mood,
+                    "mood": SENTIMENT_TO_MOOD.get(sentiment_tag),
                     "transcript": row["Transcripts"],
                 }
             )
 
-    # bucket by leaf -> mood -> count, to find significant tiers (same rule as planning)
-    leaf_mood_counts = collections.defaultdict(collections.Counter)
-    leaf_totals = collections.Counter()
+    rows_by_leaf = collections.defaultdict(list)
+    rows_by_leaf_mood = collections.defaultdict(list)
     for r in per_row:
-        leaf_totals[r["leaf"]] += 1
+        rows_by_leaf[r["leaf"]].append(r)
         if r["mood"]:
-            leaf_mood_counts[r["leaf"]][r["mood"]] += 1
-
-    significant = {}
-    for leaf, total in leaf_totals.items():
-        tiers = set()
-        for mood, cnt in leaf_mood_counts[leaf].items():
-            if cnt >= 2 or (total and cnt / total >= 0.08):
-                tiers.add(mood)
-        if not tiers:
-            tiers = {"okay"}
-        significant[leaf] = tiers
-
-    # group rows by (leaf, mood) for the significant tiers only
-    groups = collections.defaultdict(list)
-    for r in per_row:
-        leaf = r["leaf"]
-        mood = r["mood"]
-        if mood and mood in significant[leaf]:
-            groups[(leaf, mood)].append(r)
-        elif mood is None and "okay" in significant[leaf] and not leaf_mood_counts[leaf]:
-            # leaf had literally zero tagged sentiment rows anywhere; still fine to leave alone,
-            # handled by fallback below.
-            pass
+            rows_by_leaf_mood[(r["leaf"], r["mood"])].append(r)
 
     output = []
-    for (leaf, mood), rows in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        l1, l2, l3 = leaf
-        field_votes = collections.defaultdict(collections.Counter)
-        openers = []
-        for r in rows:
-            details = parse_booking_details(r["transcript"])
-            for k, v in details.items():
-                field_votes[k][v] += 1
-            if len(openers) < 3:
-                line = first_customer_line(r["transcript"])
-                if line:
-                    openers.append(line)
-        majority_fields = {k: c.most_common(1)[0][0] for k, c in field_votes.items()}
-        output.append(
-            {
-                "l1": l1,
-                "l2": l2,
-                "l3": l3,
-                "mood": mood,
-                "n": len(rows),
-                "fields": majority_fields,
-                "sample_openers": openers,
-            }
-        )
-
-    # also include leaves entirely absent from significant grouping due to zero tags
-    # (defensive - shouldn't happen given fallback to 'okay' above, but double check coverage)
-    covered_leaves = {(g["l1"], g["l2"], g["l3"]) for g in output}
-    for leaf in leaf_totals:
-        if leaf not in covered_leaves:
+    for leaf in sorted(rows_by_leaf):
+        leaf_rows = rows_by_leaf[leaf]
+        leaf_fallback_fields = majority_fields(leaf_rows)
+        leaf_fallback_openers = sample_openers(leaf_rows)
+        for mood in ALL_MOODS:
+            slice_rows = rows_by_leaf_mood.get((leaf, mood), [])
             l1, l2, l3 = leaf
-            rows = [r for r in per_row if r["leaf"] == leaf]
-            field_votes = collections.defaultdict(collections.Counter)
-            openers = []
-            for r in rows:
-                details = parse_booking_details(r["transcript"])
-                for k, v in details.items():
-                    field_votes[k][v] += 1
-                if len(openers) < 3:
-                    line = first_customer_line(r["transcript"])
-                    if line:
-                        openers.append(line)
-            majority_fields = {k: c.most_common(1)[0][0] for k, c in field_votes.items()}
-            output.append(
-                {
-                    "l1": l1, "l2": l2, "l3": l3, "mood": "okay",
-                    "n": len(rows), "fields": majority_fields, "sample_openers": openers,
-                }
-            )
+            if slice_rows:
+                output.append(
+                    {
+                        "l1": l1, "l2": l2, "l3": l3, "mood": mood,
+                        "n": len(slice_rows), "grounded": True,
+                        "fields": majority_fields(slice_rows),
+                        "sample_openers": sample_openers(slice_rows),
+                    }
+                )
+            else:
+                # No real example of this leaf at this mood this quarter -- fall back to
+                # the leaf's overall (mood-blind) majority fields rather than fabricate a
+                # slice-specific vote from nothing. Marked grounded=False so it's traceable.
+                output.append(
+                    {
+                        "l1": l1, "l2": l2, "l3": l3, "mood": mood,
+                        "n": 0, "grounded": False,
+                        "fields": dict(leaf_fallback_fields),
+                        "sample_openers": list(leaf_fallback_openers),
+                    }
+                )
 
     with open(OUT_PATH, "w") as f:
         json.dump(output, f, indent=1)
 
-    print(f"Total (leaf, mood) groups: {len(output)}")
+    grounded = sum(1 for g in output if g["grounded"])
+    print(f"Total (leaf, mood) rows: {len(output)} ({grounded} grounded in real data, {len(output) - grounded} fallback)")
     print(f"Wrote {OUT_PATH}")
 
 
