@@ -145,21 +145,35 @@ class LLMUserEngine:
             f"Your scenario:\n{scenario_text}\n\n"
             f"Your mood:\n{mood_instruction}\n\n"
             "Rules:\n"
+            "- Read the support agent's last message carefully and reply directly to what they "
+            "specifically said (answer their question, react to their offer/denial) -- never ignore "
+            "it or fall back to a generic line, while staying true to your scenario and mood.\n"
             "- Speak naturally as a customer, 1-2 short sentences per message.\n"
             "- Do not reveal you are a test or a bot.\n"
             "- Only claim information you would actually know as a customer.\n"
-            "- React to the agent's answers realistically per your scenario.\n"
+            "- You are the CUSTOMER in this conversation, never the support agent -- do not offer to "
+            "investigate, escalate, or resolve anything; that is the agent's job, not yours.\n"
             "- When the goal of your scenario is resolved (or you've decided to leave/escalate), "
             f"end your reply with {END_MARKER} and nothing else after it.\n"
         )
 
     def _messages(self, transcript: list[Event]) -> list[dict]:
+        # Our own Event.role is "user"=simulated guest, "bot"=the real Zendesk bot. The
+        # OpenAI-style roles below are inverted relative to that on purpose: chat-completion
+        # APIs always generate the next "assistant" turn, and it's OUR guest that this call
+        # is generating the next line for -- so the guest's own past lines must be tagged
+        # "assistant" (the model's own prior output) and the real bot's lines "user" (the
+        # other party talking to it). Tagging them the other way around (as this used to)
+        # made the model complete the "assistant" turn using the *bot's* established voice
+        # from the conversation history, overriding the system prompt's persona instruction
+        # more and more as the conversation went on -- the simulated guest would visibly
+        # drift into talking like a support agent by turn 3-4.
         messages = []
         for event in transcript:
             if event.role == "user":
-                messages.append({"role": "user", "content": event.text})
-            elif event.role == "bot":
                 messages.append({"role": "assistant", "content": event.text})
+            elif event.role == "bot":
+                messages.append({"role": "user", "content": event.text})
         return messages
 
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
