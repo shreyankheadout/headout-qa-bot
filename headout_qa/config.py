@@ -62,9 +62,13 @@ class Settings(BaseSettings):
 
     @property
     def sheet_bookings_export_url(self) -> str:
+        # /export?format=csv occasionally 400s right after a sheet is heavily
+        # edited (stale export cache) while staying "Anyone with the link" the
+        # whole time; /gviz/tq is Google's older but more reliable public-CSV
+        # path for the same sheet and doesn't show this failure mode.
         return (
-            f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export"
-            f"?format=csv&gid={self.sheet_bookings_gid}"
+            f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq"
+            f"?tqx=out:csv&gid={self.sheet_bookings_gid}"
         )
 
     @property
@@ -79,8 +83,8 @@ class Settings(BaseSettings):
         if self.sheet_scenarios_gid is None:
             return None
         return (
-            f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export"
-            f"?format=csv&gid={self.sheet_scenarios_gid}"
+            f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq"
+            f"?tqx=out:csv&gid={self.sheet_scenarios_gid}"
         )
 
     @property
