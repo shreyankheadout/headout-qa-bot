@@ -479,10 +479,11 @@ function cascadeFilters() {
   fillSelect('fL2', distOf(l2Rows, 'l2'));
   const l3Rows = l2Rows.filter(b => matchesVal(b.l2, f.l2));
   fillSelect('fL3', distOf(l3Rows, 'l3'));
+  const moodRows = l3Rows.filter(b => matchesVal(b.l3, f.l3));
+  fillSelect('fMood', distOf(moodRows, 'mood'));
 }
 function populateFilters(filters) {
   fillSelect('fL1', filters && filters.l1);
-  fillSelect('fMood', filters && filters.mood);
   cascadeFilters();
   updateFilterPreview();
 }
@@ -745,9 +746,10 @@ $('startBtn').addEventListener('click', start);
 $('stopBtn').addEventListener('click', stop);
 $('refreshBtn').addEventListener('click', () => refreshData(false));
 const clearBtn=$('clearBtn'); if(clearBtn) clearBtn.addEventListener('click', clearResults);
-const fL1El = $('fL1'); if (fL1El) fL1El.addEventListener('change', () => { $('fL2').value = ''; $('fL3').value = ''; cascadeFilters(); updateFilterPreview(); });
-const fL2El = $('fL2'); if (fL2El) fL2El.addEventListener('change', () => { $('fL3').value = ''; cascadeFilters(); updateFilterPreview(); });
-['fL3','fMood'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', updateFilterPreview); });
+const fL1El = $('fL1'); if (fL1El) fL1El.addEventListener('change', () => { $('fL2').value = ''; $('fL3').value = ''; $('fMood').value = ''; cascadeFilters(); updateFilterPreview(); });
+const fL2El = $('fL2'); if (fL2El) fL2El.addEventListener('change', () => { $('fL3').value = ''; $('fMood').value = ''; cascadeFilters(); updateFilterPreview(); });
+const fL3El = $('fL3'); if (fL3El) fL3El.addEventListener('change', () => { $('fMood').value = ''; cascadeFilters(); updateFilterPreview(); });
+const fMoodEl = $('fMood'); if (fMoodEl) fMoodEl.addEventListener('change', updateFilterPreview);
 const clr=$('clearFilters'); if(clr) clr.addEventListener('click', () => { ['fL1','fL2','fL3','fMood'].forEach(id=>{const e=$(id); if(e) e.value='';}); cascadeFilters(); updateFilterPreview(); });
 $('llmSave').addEventListener('click', saveLlm);
 $('zkSave').addEventListener('click', saveZendesk);
