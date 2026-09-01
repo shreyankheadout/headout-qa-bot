@@ -41,6 +41,20 @@ class UserEngine(Protocol):
         ...
 
 
+OPENING_LINE = "Hey there, I need help."
+
+# What the bot asks for while it's still identifying the booking, before the real
+# scenario even starts -- the scripted engine must answer these reactively (only
+# when actually asked) rather than dumping booking ID/email into the opener, or
+# front-loading them, which isn't how a real customer chats and skips exercising
+# the bot's own identity-verification flow.
+_BOOKING_ID_ASK_MARKERS = (
+    "booking id", "booking reference", "reference number", "confirmation number",
+    "order id", "booking number",
+)
+_EMAIL_ASK_MARKERS = ("email address", "email id", "your email", "the email")
+
+
 class ScriptedUserEngine:
     def __init__(self, settings: Settings) -> None:
         self.max_turns = settings.max_turns
@@ -56,22 +70,48 @@ class ScriptedUserEngine:
             return "When will I receive my ticket?"
         return "I want to cancel this booking. Is it cancellable?"
 
+    def _real_ask(self, scenario: Scenario) -> str:
+        text = self._question(scenario.node, scenario.booking)
+        if scenario.scenario_text and not _is_meta_instruction(scenario.scenario_text):
+            text = f"{text} {scenario.scenario_text}"
+        return text
+
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
         user_turns = [e for e in transcript if e.role == "user"]
+        bot_turns = [e for e in transcript if e.role == "bot"]
         booking = scenario.booking
         mood = booking.mood or "okay"
+
         if not user_turns:
-            greeting = f"Hi, I need help with my booking {booking.booking_id}."
-            # Surface the sheet's scenario-specific context in the opening message so
-            # the AI agent is actually exercised on the nuance the QA author wrote,
-            # not just a generic node-shaped question.
-            if scenario.scenario_text and not _is_meta_instruction(scenario.scenario_text):
-                greeting += f" {scenario.scenario_text}"
-            return greeting
-        if len(user_turns) == 1:
-            return self._question(scenario.node, booking)
-        if len(user_turns) == 2:
-            denied = scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable
+            return OPENING_LINE
+
+        last_bot_text = (bot_turns[-1].text or "").lower() if bot_turns else ""
+        booking_id_answer = f"Sure, my booking ID is {booking.booking_id}."
+        email_answer = f"It's {booking.email_id}." if booking.email_id else None
+        given_texts = {e.text for e in user_turns}
+        real_ask = self._real_ask(scenario)
+
+        # React to whatever the bot is actually asking for right now, whenever it
+        # asks -- before the scenario starts, or mid-negotiation if it re-asks.
+        if any(m in last_bot_text for m in _BOOKING_ID_ASK_MARKERS) and booking_id_answer not in given_texts:
+            return booking_id_answer
+        if email_answer and any(m in last_bot_text for m in _EMAIL_ASK_MARKERS) and email_answer not in given_texts:
+            return email_answer
+
+        if real_ask not in given_texts:
+            return real_ask
+
+        # The real ask has been delivered; count only the substantive turns since
+        # then (skip the opener and any identity-verification answers) to decide
+        # the accept / pushback / escalate beat.
+        skip = {OPENING_LINE, booking_id_answer}
+        if email_answer:
+            skip.add(email_answer)
+        substantive = [t for t in (e.text for e in user_turns) if t not in skip]
+        turns_since_ask = len(substantive) - substantive.index(real_ask) - 1
+
+        denied = scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable
+        if turns_since_ask == 0:
             if denied and mood == "angry":
                 return "This is unacceptable. I need this sorted out right now."
             if denied and mood == "frustrated":
@@ -79,8 +119,7 @@ class ScriptedUserEngine:
             if mood == "happy":
                 return "No worries, thank you so much for the help!"
             return "Okay, please go ahead with that."
-        if len(user_turns) == 3:
-            denied = scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable
+        if turns_since_ask == 1:
             if denied and mood in ("angry", "frustrated"):
                 return "I'd like to speak to a supervisor about this."
             return None
@@ -153,6 +192,8 @@ class LLMUserEngine:
             "- Only claim information you would actually know as a customer.\n"
             "- You are the CUSTOMER in this conversation, never the support agent -- do not offer to "
             "investigate, escalate, or resolve anything; that is the agent's job, not yours.\n"
+            "- Do not volunteer your booking ID or email upfront. Only give either one if the agent "
+            "actually asks for it -- and then just answer that, don't restate your whole scenario.\n"
             "- When the goal of your scenario is resolved (or you've decided to leave/escalate), "
             f"end your reply with {END_MARKER} and nothing else after it.\n"
         )
@@ -177,6 +218,8 @@ class LLMUserEngine:
         return messages
 
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
+        if not any(e.role == "user" for e in transcript):
+            return OPENING_LINE
         payload = {
             "model": self.settings.llm_model,
             "messages": [

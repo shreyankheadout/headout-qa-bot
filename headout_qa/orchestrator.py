@@ -147,7 +147,7 @@ class Orchestrator:
         events: list[Event] = []
         try:
             user_id = await self.sunco.create_user(
-                given_name=f"QA {scenario.scenario_id}",
+                given_name="Skyler QA Tester",
                 external_id=self._external_id(scenario.scenario_id),
                 metadata={"qa_scenario": scenario.scenario_id, "booking_id": scenario.booking.booking_id},
             )

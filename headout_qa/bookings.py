@@ -50,7 +50,7 @@ class Booking:
                 has_ext = True
         return cls(
             booking_id=_str(_pick(row, "booking_id", "bookingId")),
-            email_id=_str(_pick(row, "email_id", "emailId")),
+            email_id=_str(_pick(row, "email_id", "emailId", "email")),
             booking_title=_clean(_pick(row, "booking_title", "bookingTitle", "tour_group_name", "tourGroupName")),
             booking_date=_clean(_pick(row, "booking_date", "bookingDate", "inventory_date_time", "inventoryDateTime", "booking_start_date")),
             booking_status=_clean(_pick(row, "booking_status", "bookingStatus", "status")),
