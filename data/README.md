@@ -43,6 +43,18 @@ leaves (including the "Fradulent" placeholder) **times all 4 moods**
   being hardcoded to "30 minutes" everywhere. `statusCode` stays blank —
   that matches the original sheet's own convention and isn't a field the
   code reads.
+- Fixed a pre-chat-state consistency bug: for any L1 where the guest is asking
+  about something that HASN'T happened yet (cancel/modify/redeem/etc. — every
+  L1 except "Amended Booking Response" and "Refund Related", which are
+  inherently about a booking whose cancellation/refund already happened and
+  the guest is following up), `bookingStatus` can no longer come out
+  `CANCELLED` and `refundReferenceNumber` can no longer be pre-populated —
+  neither can be a fact of the booking before a conversation that is itself
+  deciding whether a cancellation/refund happens. Also moved "Amended Booking
+  Response" off the `cancel` grading node (it was being asked "is this
+  cancellable" when the real question is a refund follow-up, which
+  `grader.py` doesn't have a dedicated fact for) onto `general`/`ticket` as
+  appropriate per leaf.
 - Fixed a real bug this surfaced along the way: `scenarios.py` derives which
   fact gets graded by scanning `scenario_text` for keywords, and a couple of
   leaf labels ("Flight/train Cancellation" under Modification Request, "Tour

@@ -102,7 +102,11 @@ NODE_BY_L1 = {
     "Modification Request": "modify",
     "Delay Fulfilment": "ticket",
     "Ticket Redemption Details": "ticket",
-    "Amended Booking Response": "cancel",
+    # Not "cancel": the guest here isn't asking whether they CAN cancel -- the
+    # amendment already happened, they're following up on its outcome (refund status).
+    # There's no dedicated refund fact in grader.py's NODE_FACTS, so this stays general
+    # and gets judged qualitatively rather than against a fabricated cancellability claim.
+    "Amended Booking Response": "general",
     "Refund Related": "general",
     "Payment Failure": "general",
     "Reserve Now Pay Later": "general",
@@ -133,7 +137,7 @@ L1_CONTEXT = {
         ask="They open the chat with a practical redemption question so they know what to do on the day.",
     ),
     "Amended Booking Response": dict(
-        situation="had Headout previously amend this booking (e.g. cancel or adjust it) and is following up",
+        situation="had Headout previously amend this booking (e.g. adjust or reverse part of it) and is following up",
         ask="They open the chat asking for a status update on that amendment, specifically their refund.",
     ),
     "Refund Related": dict(
@@ -266,6 +270,27 @@ def yn_to_bool(value: str | None) -> bool | None:
     return value.strip().lower() == "yes"
 
 
+# A scenario's mock-API state is a snapshot of the booking BEFORE the guest's message --
+# it must describe a state consistent with the guest still having something to ask about
+# in this conversation. For most L1s, the guest is asking about something that has NOT
+# happened yet (they want to cancel, modify, know when tickets arrive, etc.) -- for those,
+# the booking can't already be CANCELLED (that would mean the thing they're about to ask
+# for already happened) and there can't already be a refundReferenceNumber (no refund has
+# been processed yet; whether one gets issued is the outcome of THIS conversation, not a
+# pre-existing fact). Only L1s that are inherently about a booking whose cancellation/
+# refund already happened -- and the guest is following up on it -- get to start CANCELLED
+# with a real refund reference.
+BACKWARD_LOOKING_L1 = {"Amended Booking Response", "Refund Related"}
+
+
+def sanitize_pre_chat_state(l1: str, majority_status: str, majority_refund_status: str) -> tuple[str, str]:
+    if l1 in BACKWARD_LOOKING_L1:
+        return majority_status, majority_refund_status
+    # Forward-looking: the booking must still be live going into the chat.
+    status = "PENDING" if majority_status == "CANCELLED" else majority_status
+    return status, "N/A"
+
+
 def main():
     with open(DATA_PATH) as f:
         groups = json.load(f)
@@ -285,6 +310,9 @@ def main():
         majority_tour_inv = fields.get("tour_inventory_type") or "FIXED_START_FIXED_DURATION"
         majority_refund_status = fields.get("refund_status") or "N/A"
         majority_alt_status = fields.get("alternates_status") or "N/A"
+        majority_status, majority_refund_status = sanitize_pre_chat_state(
+            l1, majority_status, majority_refund_status
+        )
 
         # Deliberate, mood-driven ground truth for the node's core fact -- mirrors the
         # existing hardcoded frustration-arc pattern (denial -> guest gets upset).
