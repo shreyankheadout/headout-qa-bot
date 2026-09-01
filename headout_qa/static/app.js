@@ -438,29 +438,52 @@ function getFilters() {
   return { l1: v('fL1'), l2: v('fL2'), l3: v('fL3'), mood: v('fMood') };
 }
 const FILTER_ALL_LABEL = { fL1: 'All L1', fL2: 'All L2', fL3: 'All L3', fMood: 'All moods' };
+function fillSelect(selId, items) {
+  const sel = $(selId);
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = FILTER_ALL_LABEL[selId] || 'All';
+  sel.appendChild(all);
+  (items || []).forEach(it => {
+    const o = document.createElement('option');
+    o.value = it.value;
+    o.textContent = it.value + ' (' + it.count + ')';
+    sel.appendChild(o);
+  });
+  if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+  else sel.value = '';
+}
+function distOf(rows, key) {
+  const counts = {};
+  rows.forEach(b => {
+    const v = (b[key] || '').trim() || '(blank)';
+    counts[v] = (counts[v] || 0) + 1;
+  });
+  return Object.keys(counts).sort().map(v => ({ value: v, count: counts[v] }));
+}
+function matchesVal(bookingVal, filterVal) {
+  if (!filterVal) return true;
+  const v = (bookingVal || '').trim() || '(blank)';
+  return v === filterVal;
+}
+// L2 options depend on the selected L1; L3 options depend on the selected L1 + L2 —
+// cascading straight off the actual booking data so a leaf never shows an L2/L3 that
+// doesn't really occur under the parent selected above it.
+function cascadeFilters() {
+  const rows = lastBookingsPreview || [];
+  const f = getFilters();
+  const l2Rows = rows.filter(b => matchesVal(b.l1, f.l1));
+  fillSelect('fL2', distOf(l2Rows, 'l2'));
+  const l3Rows = l2Rows.filter(b => matchesVal(b.l2, f.l2));
+  fillSelect('fL3', distOf(l3Rows, 'l3'));
+}
 function populateFilters(filters) {
-  const fill = (selId, items) => {
-    const sel = $(selId);
-    if (!sel) return;
-    const cur = sel.value;
-    sel.innerHTML = '';
-    const all = document.createElement('option');
-    all.value = '';
-    all.textContent = FILTER_ALL_LABEL[selId] || 'All';
-    sel.appendChild(all);
-    (items || []).forEach(it => {
-      const o = document.createElement('option');
-      o.value = it.value;
-      o.textContent = it.value + ' (' + it.count + ')';
-      sel.appendChild(o);
-    });
-    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
-    else sel.value = '';
-  };
-  fill('fL1', filters && filters.l1);
-  fill('fL2', filters && filters.l2);
-  fill('fL3', filters && filters.l3);
-  fill('fMood', filters && filters.mood);
+  fillSelect('fL1', filters && filters.l1);
+  fillSelect('fMood', filters && filters.mood);
+  cascadeFilters();
   updateFilterPreview();
 }
 function updateFilterPreview() {
@@ -722,8 +745,10 @@ $('startBtn').addEventListener('click', start);
 $('stopBtn').addEventListener('click', stop);
 $('refreshBtn').addEventListener('click', () => refreshData(false));
 const clearBtn=$('clearBtn'); if(clearBtn) clearBtn.addEventListener('click', clearResults);
-['fL1','fL2','fL3','fMood'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', updateFilterPreview); });
-const clr=$('clearFilters'); if(clr) clr.addEventListener('click', () => { ['fL1','fL2','fL3','fMood'].forEach(id=>{const e=$(id); if(e) e.value='';}); updateFilterPreview(); });
+const fL1El = $('fL1'); if (fL1El) fL1El.addEventListener('change', () => { $('fL2').value = ''; $('fL3').value = ''; cascadeFilters(); updateFilterPreview(); });
+const fL2El = $('fL2'); if (fL2El) fL2El.addEventListener('change', () => { $('fL3').value = ''; cascadeFilters(); updateFilterPreview(); });
+['fL3','fMood'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', updateFilterPreview); });
+const clr=$('clearFilters'); if(clr) clr.addEventListener('click', () => { ['fL1','fL2','fL3','fMood'].forEach(id=>{const e=$(id); if(e) e.value='';}); cascadeFilters(); updateFilterPreview(); });
 $('llmSave').addEventListener('click', saveLlm);
 $('zkSave').addEventListener('click', saveZendesk);
 $('sheetIdSave').addEventListener('click', saveSheetId);
