@@ -105,26 +105,115 @@ NODE_BY_L1 = {
     "Fraudulent": "general",
 }
 
-L1_SITUATION = {
-    "Cancellation Request": "wants to cancel their booking",
-    "Modification Request": "wants to modify details on their booking",
-    "Delay Fulfilment": "still hasn't received their tickets and wants an update",
-    "Ticket Redemption Details": "has a question about how to redeem their ticket",
-    "Amended Booking Response": "is following up on a booking that was already amended",
-    "Refund Related": "is asking about a refund",
-    "Payment Failure": "ran into a problem paying for their booking",
-    "Reserve Now Pay Later": "has a question about their Reserve Now, Pay Later booking",
-    "Vendor Query": "is a supplier contact asking about a guest's booking",
-    "Service Issues": "is unhappy with how the experience itself went",
-    "General Information": "has a general question before or after booking",
-    "Fraudulent": "is reporting suspicious or fraudulent activity on their account",
+# Per-L1 narrative: `situation` sets up why the guest is contacting support, `ask` is
+# the concrete opening question they lead with — kept separate so the generated text
+# reads like a real support-chat setup, not a category label restated as a sentence.
+L1_CONTEXT = {
+    "Cancellation Request": dict(
+        situation="wants to cancel their upcoming booking",
+        ask="They open the chat by explaining why, and ask directly whether the booking can be cancelled and refunded.",
+    ),
+    "Modification Request": dict(
+        situation="wants to keep this booking but needs a detail on it changed",
+        ask="They open the chat describing exactly what needs to change and ask whether the agent can update the booking for them.",
+    ),
+    "Delay Fulfilment": dict(
+        situation="paid for this booking but still hasn't received their tickets or voucher",
+        ask="They open the chat asking where their tickets are and when they'll actually receive them.",
+    ),
+    "Ticket Redemption Details": dict(
+        situation="already has a valid ticket for this booking but isn't sure exactly how or where to use it",
+        ask="They open the chat with a practical redemption question so they know what to do on the day.",
+    ),
+    "Amended Booking Response": dict(
+        situation="had Headout previously amend this booking (e.g. cancel or adjust it) and is following up",
+        ask="They open the chat asking for a status update on that amendment, specifically their refund.",
+    ),
+    "Refund Related": dict(
+        situation="is waiting on, or disputing, a refund tied to this booking",
+        ask="They open the chat asking directly about the refund — its status, amount, or why it doesn't match what they expected.",
+    ),
+    "Payment Failure": dict(
+        situation="tried to pay for this booking and the payment didn't go through cleanly",
+        ask="They open the chat explaining what happened at checkout and asking the agent to help them complete or fix the booking.",
+    ),
+    "Reserve Now Pay Later": dict(
+        situation="used the Reserve Now, Pay Later option on this booking and has a question about the payment terms",
+        ask="They open the chat asking the agent to clarify exactly how or when they'll actually be charged.",
+    ),
+    "Vendor Query": dict(
+        situation="is a supplier-side contact, not the guest, asking about this specific booking on their platform",
+        ask="They open the chat referencing the guest's booking and asking the agent to confirm or action something on the supplier's behalf.",
+    ),
+    "Service Issues": dict(
+        situation="already went on the tour, and something about the actual experience fell short",
+        ask="They open the chat describing what went wrong on the day and asking what Headout can do about it after the fact.",
+    ),
+    "General Information": dict(
+        situation="needs a factual answer about this booking (or about booking with Headout in general) before deciding what to do next",
+        ask="They open the chat with a direct question and expect a clear, accurate answer.",
+    ),
+    "Fraudulent": dict(
+        situation="believes their account or payment method was used without their knowledge to make this booking",
+        ask="They open the chat reporting the suspicious booking and asking for it to be investigated and reversed.",
+    ),
 }
 
+FACT_AWARENESS = {
+    "cancel": (
+        "This booking genuinely IS cancellable — a correct agent should confirm that and go ahead with the cancellation.",
+        "This booking genuinely is NOT cancellable — a correct agent should clearly and firmly explain that (not hedge or guess) and offer any real alternative available.",
+    ),
+    "modify": (
+        "This booking genuinely CAN be modified/rescheduled — a correct agent should confirm that and help make the change.",
+        "This booking genuinely CANNOT be modified/rescheduled — a correct agent should clearly and firmly explain that and offer any real alternative available.",
+    ),
+    "extend": (
+        "This ticket's validity genuinely CAN be extended — a correct agent should confirm that and explain the new validity.",
+        "This ticket's validity genuinely CANNOT be extended — a correct agent should clearly and firmly explain that.",
+    ),
+}
+
+# Mood -> concrete behavioral brief for the LLM playing the guest. Deliberately spells
+# out the trigger condition and the escalation trajectory (turn-by-turn), not just a
+# tone adjective, so the simulated guest's reactions are consistent and testable.
 MOOD_BEHAVIOR = {
-    "happy": "The guest is relaxed and upbeat, quick to accept whatever the agent says and thanks them warmly once it's sorted.",
-    "okay": "The guest is calm and matter-of-fact, asks their question plainly and accepts a clear answer without much back-and-forth.",
-    "frustrated": "The guest is annoyed about the situation, pushes back once with a bit of edge if the first answer doesn't satisfy them, but stays civil.",
-    "angry": "The guest is upset and impatient from the first message, pushes back firmly at least twice, and threatens to ask for a supervisor if the agent doesn't resolve it quickly.",
+    "happy": (
+        "Mood: happy. They're relaxed and good-humoured about the whole thing. They accept the agent's "
+        "first reasonable, correct answer without any pushback, and close the conversation with a genuine "
+        "thank-you once it's resolved."
+    ),
+    "okay": (
+        "Mood: okay/neutral. They're calm and businesslike. They state their question plainly, listen to "
+        "the answer, and accept it without complaint as long as it's a clear, correct answer to what they "
+        "actually asked — no need to manufacture friction."
+    ),
+    "frustrated": (
+        "Mood: frustrated. This situation is genuinely annoying them, and it shows in their tone from the "
+        "first message. If the agent's first answer doesn't actually resolve things, they push back once, "
+        "more sharply, before either accepting a real resolution or — if they still don't get one — asking "
+        "to speak to a supervisor."
+    ),
+    "angry": (
+        "Mood: angry. They're upset and impatient from their very first message, and they say so directly. "
+        "If they aren't given a clear, satisfying answer right away, they push back firmly at least twice, "
+        "and if it's still not resolved they explicitly say they want to speak to a supervisor or manager."
+    ),
+}
+
+
+# build_default_scenarios() (scenarios.py) derives `node` -- which fact grader.py
+# checks -- by scanning scenario_text for keywords in a fixed priority order (cancel,
+# extend, reschedule/postpone, modify/change, ticket/deliver, else general). A couple of
+# leaf names contain "cancel*" or "ticket" as an incidental word even though the leaf
+# itself isn't a cancellation/ticket-delivery scenario, which would silently misdirect
+# grading onto the wrong fact. Override just those leaves' detail phrasing to route to
+# the right node instead of literally restating the raw L3 label.
+DETAIL_OVERRIDES = {
+    ("Modification Request", "Customer Related", "Flight/train Cancellation"):
+        "their flight or train got rescheduled by the airline/operator, so they need Headout to change their booking to match",
+    ("Service Issues", "Sp Related", "Tour Cancelled By Sp"):
+        "the tour operator called off the tour on the day, after the guest had already gone through with the booking",
 }
 
 
@@ -138,13 +227,28 @@ def humanize(text: str) -> str:
     return " ".join(words).replace(" 't ", "'t ")
 
 
-def scenario_text_for(l1: str, l2: str, l3: str, mood: str) -> str:
-    detail = humanize(l3) if l3 else (humanize(l2) if l2 else "")
-    base = L1_SITUATION.get(l1, "has a question about their booking")
-    if detail:
-        parts = [f"The guest {base} — specifically, {detail}."]
+def scenario_text_for(
+    l1: str, l2: str, l3: str, mood: str, *,
+    tour_name: str, guest_count: str, node: str, approved: bool,
+) -> str:
+    if (l1, l2, l3) in DETAIL_OVERRIDES:
+        detail = DETAIL_OVERRIDES[(l1, l2, l3)]
     else:
-        parts = [f"The guest {base}."]
+        detail = humanize(l3) if l3 else (humanize(l2) if l2 else "")
+    ctx = L1_CONTEXT.get(l1, dict(
+        situation="has a question about their booking",
+        ask="They open the chat with their question and expect a clear answer.",
+    ))
+
+    party = "a solo booking" if guest_count == "1" else f"a booking for {guest_count} guests"
+    parts = [f"The guest has {party} for {tour_name} and {ctx['situation']}."]
+    if detail:
+        parts.append(f"Specifically, this is about: {detail}.")
+    parts.append(ctx["ask"])
+
+    if node in FACT_AWARENESS:
+        parts.append(FACT_AWARENESS[node][0 if approved else 1])
+
     parts.append(MOOD_BEHAVIOR[mood])
     return " ".join(parts)
 
@@ -187,12 +291,16 @@ def main():
         name = f"{FIRST_NAMES[i % len(FIRST_NAMES)]} {LAST_NAMES[(i * 7) % len(LAST_NAMES)]}"
         booking_id = 80100000 + i
         ticket_num = 40100000 + i
+        guest_count = str((i % 5) + 1)
 
         row = {
             "bookingId": str(booking_id),
             "email": "shreyank.prabhu@headout.com",
             "booking_status": majority_status,
-            "scenario_text": scenario_text_for(l1, l2, l3, mood),
+            "scenario_text": scenario_text_for(
+                l1, l2, l3, mood,
+                tour_name=tour["name"], guest_count=guest_count, node=node, approved=approved,
+            ),
             "isCancellable": str(is_cancellable).upper(),
             "bookingStatus": majority_status,
             "isPendingCancellation": "FALSE",
@@ -215,7 +323,7 @@ def main():
             "vendorRefId": f"VREF-{1100 + i}",
             "tourGroupName": tour["name"],
             "primaryCustomerName": name,
-            "guestCount": str((i % 5) + 1),
+            "guestCount": guest_count,
             "secureBookingId": f"SEC-{ticket_num}",
             "fulfillmentType": "VENDOR_API",
             "statusCode": "",
@@ -250,9 +358,13 @@ def main():
         "bookingId": str(booking_id), "email": "shreyank.prabhu@headout.com",
         "booking_status": "PENDING",
         "scenario_text": (
-            "The guest reports that they never made this booking and suspects their account or "
-            "payment details were used fraudulently. The guest is anxious and wants the booking "
-            "investigated and reversed as soon as possible."
+            f"The guest has a booking for {tour['name']} that shows up on their account, but they say "
+            "they never made it and believes their account or payment details were used without their "
+            "knowledge. They open the chat reporting the suspicious booking and asking for it to be "
+            "investigated and reversed immediately, including a refund of any charge. "
+            "Mood: anxious and on edge — they want this treated urgently, ask pointed questions to make "
+            "sure the agent is actually taking real action (not just noting down a complaint), and push "
+            "back if the agent's response feels generic or slow."
         ),
         "isCancellable": "TRUE", "bookingStatus": "PENDING", "isPendingCancellation": "FALSE",
         "isReschedulable": "FALSE", "oopCancellationAllowed": "TRUE", "vendorId": str(1200 + i),

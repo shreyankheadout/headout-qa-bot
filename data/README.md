@@ -31,14 +31,25 @@ guest-mood variation) with 161 rows covering:
 
 ## How to apply it
 
-This repo has no write access to the live Google Sheet. To use the rebuilt
-data:
+This session has no tool that can write cell values into an existing Google
+Sheet (only "create a new file" or "edit a file's title/folder" are
+available) — so the update to `1hGrZbcsOjNHNnidsZxp-QdVTTQcSHtOHqz6_HJMyqgA`
+has to be applied by hand, in place, rather than done here automatically.
 
-1. Open the `bookings` tab of the ground-truth sheet.
-2. Replace its contents with `bookings_rebuilt.csv` (import > replace current
-   sheet, or paste over the existing range) — the column order matches the
-   existing sheet exactly, with `mood` appended as a new final column.
-3. Re-run `headout-qa run --dry-run` to confirm the new rows parse.
+To update the **existing** `bookings` tab (gid=0) without spinning up another
+separate spreadsheet (which is what happens if you import as "new
+spreadsheet" or "insert new sheet"):
+
+1. Open the sheet: https://docs.google.com/spreadsheets/d/1hGrZbcsOjNHNnidsZxp-QdVTTQcSHtOHqz6_HJMyqgA/edit?gid=0
+2. Make sure the `bookings` tab (gid=0) is the active tab.
+3. File > Import > Upload `bookings_rebuilt.csv`.
+4. On the import dialog, set **Import location: "Replace current sheet"**
+   (not "Insert new sheet(s)" and not "Create new spreadsheet") — this
+   overwrites the active tab's contents in place, keeping the same tab/gid
+   and URL, and leaves the `scenarios` tab untouched.
+5. Confirm the header row now ends in `L1, L2, L3, mood` (45 columns) and
+   there are 161 data rows.
+6. Re-run `headout-qa run --dry-run` to confirm the new rows parse.
 
 ## Regenerating
 
