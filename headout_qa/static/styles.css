@@ -110,6 +110,8 @@ svg.ico { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-wi
 }
 .icon-btn:hover { color: var(--brand-deep); border-color: var(--brand-soft); background: var(--brand-soft); box-shadow: var(--shadow-md); }
 .icon-btn:active { transform: scale(0.95); }
+.icon-btn.spinning svg.ico { animation: icon-spin 0.7s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
 
 /* ── Page ── */
 .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 28px 80px; }
@@ -427,6 +429,15 @@ tr.row-open .chev { transform: rotate(90deg); color: var(--brand-deep); }
   display: inline-block; background: var(--brand-soft); color: var(--brand-deep);
   font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px;
 }
+.mood-tag {
+  display: inline-block; margin-left: 5px;
+  font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  text-transform: capitalize;
+}
+.mood-tag.mood-good { background: var(--green-soft); color: var(--green-deep); }
+.mood-tag.mood-neutral { background: var(--line-light); color: var(--ink2); }
+.mood-tag.mood-warn { background: var(--amber-soft); color: var(--amber-deep); }
+.mood-tag.mood-bad { background: var(--red-soft); color: var(--red-deep); }
 
 /* ── Checks / Chips ── */
 .checks-cell { min-width: 180px; }

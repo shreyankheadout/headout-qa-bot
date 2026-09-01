@@ -152,8 +152,9 @@ def build_report(result: RunResult | None, run_dir: Path) -> Path:
         tp_failed = sum(1 for r in tp_runs if r.grade and not r.grade.passed)
         tp_escalated = sum(1 for r in tp_runs if r.escalated)
         tp_incomplete = tp_total - tp_passed - tp_failed
+        label = " › ".join(part for part in key if part != "(blank)") or "(uncategorized)"
         touchpoint_rows.append(
-            f"<tr><td>{escape(' › '.join(key))}</td>"
+            f"<tr><td>{escape(label)}</td>"
             f"<td>{tp_total}</td><td>{tp_passed}</td><td>{tp_failed}</td>"
             f"<td>{tp_escalated}</td><td>{tp_incomplete}</td></tr>"
         )

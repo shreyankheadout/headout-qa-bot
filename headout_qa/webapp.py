@@ -47,6 +47,7 @@ class StartPayload(BaseModel):
     l1: str | None = None
     l2: str | None = None
     l3: str | None = None
+    mood: str | None = None
 
 
 class LlmSettingsPayload(BaseModel):
@@ -119,17 +120,26 @@ def _update_env(updates: dict[str, str]) -> None:
     path.write_text("\n".join(out) + "\n")
 
 
-def _filter_bookings(bookings, l1: str | None, l2: str | None, l3: str | None):  # type: ignore[no-untyped-def]
+def _filter_bookings(bookings, l1: str | None, l2: str | None, l3: str | None, mood: str | None = None):  # type: ignore[no-untyped-def]
     if l1:
         bookings = [b for b in bookings if (b.l1 or "") == l1]
     if l2:
         bookings = [b for b in bookings if (b.l2 or "") == l2]
     if l3:
         bookings = [b for b in bookings if (b.l3 or "") == l3]
+    if mood:
+        bookings = [b for b in bookings if (b.mood or "") == mood]
     return bookings
 
 
-async def _job(settings: Settings, limit: int | None = None, l1: str | None = None, l2: str | None = None, l3: str | None = None) -> None:
+async def _job(
+    settings: Settings,
+    limit: int | None = None,
+    l1: str | None = None,
+    l2: str | None = None,
+    l3: str | None = None,
+    mood: str | None = None,
+) -> None:
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         bookings = await fetch_bookings(settings, client)
         if not bookings:
@@ -138,9 +148,12 @@ async def _job(settings: Settings, limit: int | None = None, l1: str | None = No
         scenario_rows = None
         if settings.sheet_scenarios_export_url:
             scenario_rows = await fetch_scenarios_csv(settings.sheet_scenarios_export_url, client)
-    bookings = _filter_bookings(bookings, l1, l2, l3)
+    bookings = _filter_bookings(bookings, l1, l2, l3, mood)
     if not bookings:
-        STATE.error = f"no bookings match filter L1={l1 or 'any'} L2={l2 or 'any'} L3={l3 or 'any'}"
+        STATE.error = (
+            f"no bookings match filter L1={l1 or 'any'} L2={l2 or 'any'} "
+            f"L3={l3 or 'any'} mood={mood or 'any'}"
+        )
         return
     scenarios = build_scenarios(bookings, scenario_rows)
     if limit is not None and limit > 0:
@@ -393,6 +406,7 @@ async def start(payload: StartPayload | None = None) -> dict:
     l1 = (payload.l1.strip() if payload and payload.l1 and payload.l1.strip() else None)
     l2 = (payload.l2.strip() if payload and payload.l2 and payload.l2.strip() else None)
     l3 = (payload.l3.strip() if payload and payload.l3 and payload.l3.strip() else None)
+    mood = (payload.mood.strip() if payload and payload.mood and payload.mood.strip() else None)
     # treat "(blank)" sentinel as empty
     if l1 == "(blank)":
         l1 = ""
@@ -400,7 +414,9 @@ async def start(payload: StartPayload | None = None) -> dict:
         l2 = ""
     if l3 == "(blank)":
         l3 = ""
-    STATE.task = asyncio.create_task(_job(settings, limit, l1, l2, l3))
+    if mood == "(blank)":
+        mood = ""
+    STATE.task = asyncio.create_task(_job(settings, limit, l1, l2, l3, mood))
     return {"ok": True}
 
 

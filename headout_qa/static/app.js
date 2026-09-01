@@ -52,6 +52,20 @@ function openDrawer() { $('drawer').classList.add('open'); $('scrim').classList.
 function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); document.body.style.overflow = ''; }
 $('settingsBtn').addEventListener('click', openDrawer);
 $('drawerClose').addEventListener('click', closeDrawer);
+$('drawerRefresh').addEventListener('click', async () => {
+  const btn = $('drawerRefresh');
+  btn.classList.add('spinning');
+  btn.disabled = true;
+  try {
+    await refresh();
+    toast('Settings reloaded from .env', 'ok');
+  } catch (e) {
+    toast('Could not reload settings: ' + e, 'err');
+  } finally {
+    btn.classList.remove('spinning');
+    btn.disabled = false;
+  }
+});
 $('scrim').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
 
@@ -263,12 +277,19 @@ function renderResults(scenarios) {
   box._scenarios = scenarios;
 }
 
+const MOOD_CLASS = { happy: 'good', okay: 'neutral', frustrated: 'warn', angry: 'bad' };
+function moodBadge(mood) {
+  if (!mood) return '';
+  const cls = MOOD_CLASS[mood] || 'neutral';
+  return '<span class="mood-tag mood-' + cls + '">' + escapeHtml(mood) + '</span>';
+}
 function touchpointCell(r) {
+  const mood = moodBadge(r.mood);
   if (r.l1) {
     const parts = [r.l1, r.l2, r.l3].filter(Boolean);
-    return '<span class="node-tag" title="node: ' + escapeHtml(r.node || '') + '">' + escapeHtml(parts.join(' › ')) + '</span>';
+    return '<span class="node-tag" title="node: ' + escapeHtml(r.node || '') + '">' + escapeHtml(parts.join(' › ')) + '</span>' + mood;
   }
-  return r.node ? '<span class="node-tag">' + escapeHtml(r.node) + '</span>' : '<span class="muted">&mdash;</span>';
+  return (r.node ? '<span class="node-tag">' + escapeHtml(r.node) + '</span>' : '<span class="muted">&mdash;</span>') + mood;
 }
 
 function touchpointCoverageText(seenTouchpoints) {
@@ -414,8 +435,9 @@ $('results').addEventListener('click', (e) => {
 /* ── Run controls ── */
 function getFilters() {
   const v = (id) => { const el = $(id); return el && el.value ? el.value : null; };
-  return { l1: v('fL1'), l2: v('fL2'), l3: v('fL3') };
+  return { l1: v('fL1'), l2: v('fL2'), l3: v('fL3'), mood: v('fMood') };
 }
+const FILTER_ALL_LABEL = { fL1: 'All L1', fL2: 'All L2', fL3: 'All L3', fMood: 'All moods' };
 function populateFilters(filters) {
   const fill = (selId, items) => {
     const sel = $(selId);
@@ -424,7 +446,7 @@ function populateFilters(filters) {
     sel.innerHTML = '';
     const all = document.createElement('option');
     all.value = '';
-    all.textContent = selId === 'fL1' ? 'All L1' : selId === 'fL2' ? 'All L2' : 'All L3';
+    all.textContent = FILTER_ALL_LABEL[selId] || 'All';
     sel.appendChild(all);
     (items || []).forEach(it => {
       const o = document.createElement('option');
@@ -438,13 +460,14 @@ function populateFilters(filters) {
   fill('fL1', filters && filters.l1);
   fill('fL2', filters && filters.l2);
   fill('fL3', filters && filters.l3);
+  fill('fMood', filters && filters.mood);
   updateFilterPreview();
 }
 function updateFilterPreview() {
   const f = getFilters();
   const badge = $('filterPreview');
   if (!badge) return;
-  const active = [f.l1, f.l2, f.l3].filter(Boolean);
+  const active = [f.l1, f.l2, f.l3, f.mood].filter(Boolean);
   if (!active.length) { badge.style.display = 'none'; badge.textContent = ''; return; }
   let count = lastBookingsPreview.length;
   if (count) {
@@ -452,6 +475,7 @@ function updateFilterPreview() {
       if (f.l1 && (f.l1 === '(blank)' ? b.l1 !== '' : b.l1 !== f.l1)) return false;
       if (f.l2 && (f.l2 === '(blank)' ? b.l2 !== '' : b.l2 !== f.l2)) return false;
       if (f.l3 && (f.l3 === '(blank)' ? b.l3 !== '' : b.l3 !== f.l3)) return false;
+      if (f.mood && (f.mood === '(blank)' ? b.mood !== '' : b.mood !== f.mood)) return false;
       return true;
     }).length;
     badge.textContent = count + ' / ' + lastBookingsPreview.length + ' scenarios';
@@ -469,6 +493,7 @@ async function start() {
     l1: f.l1,
     l2: f.l2,
     l3: f.l3,
+    mood: f.mood,
   };
   const res = await fetch('/api/start', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -697,8 +722,8 @@ $('startBtn').addEventListener('click', start);
 $('stopBtn').addEventListener('click', stop);
 $('refreshBtn').addEventListener('click', () => refreshData(false));
 const clearBtn=$('clearBtn'); if(clearBtn) clearBtn.addEventListener('click', clearResults);
-['fL1','fL2','fL3'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', updateFilterPreview); });
-const clr=$('clearFilters'); if(clr) clr.addEventListener('click', () => { ['fL1','fL2','fL3'].forEach(id=>{const e=$(id); if(e) e.value='';}); updateFilterPreview(); });
+['fL1','fL2','fL3','fMood'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', updateFilterPreview); });
+const clr=$('clearFilters'); if(clr) clr.addEventListener('click', () => { ['fL1','fL2','fL3','fMood'].forEach(id=>{const e=$(id); if(e) e.value='';}); updateFilterPreview(); });
 $('llmSave').addEventListener('click', saveLlm);
 $('zkSave').addEventListener('click', saveZendesk);
 $('sheetIdSave').addEventListener('click', saveSheetId);

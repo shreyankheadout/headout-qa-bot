@@ -21,9 +21,14 @@
       <h2>Settings</h2>
       <p>Connections, data source &amp; model</p>
     </div>
-    <button class="icon-btn" id="drawerClose" title="Close">
-      <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
+    <div class="row" style="gap:8px;">
+      <button class="icon-btn" id="drawerRefresh" title="Reload from .env now">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+      </button>
+      <button class="icon-btn" id="drawerClose" title="Close">
+        <svg class="ico" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
   </div>
   <div class="drawer-body">
 
@@ -171,7 +176,7 @@
   <div class="card" id="filterCard" style="padding:16px 20px;">
     <div class="card-title" style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
       <span>Targeted run</span>
-      <span style="font-weight:500; text-transform:none; letter-spacing:0; color:var(--subtle);">Filter by L1 / L2 / L3 — leave on All to run everything</span>
+      <span style="font-weight:500; text-transform:none; letter-spacing:0; color:var(--subtle);">Filter by L1 / L2 / L3 / mood — leave on All to run everything</span>
       <span id="filterPreview" style="margin-left:auto; font-size:12px; font-weight:700; color:var(--brand-deep); background:var(--brand-soft); padding:3px 10px; border-radius:999px; display:none;"></span>
     </div>
     <div class="row" style="gap:12px; align-items:end;">
@@ -186,6 +191,10 @@
       <div class="col" style="flex:1; min-width:170px;">
         <span class="label">L3</span>
         <select id="fL3"><option value="">All L3</option></select>
+      </div>
+      <div class="col" style="flex:0 0 auto; min-width:150px;">
+        <span class="label">Mood</span>
+        <select id="fMood"><option value="">All moods</option></select>
       </div>
       <button id="clearFilters" class="btn-outline" style="padding:9px 14px;">Clear</button>
     </div>
