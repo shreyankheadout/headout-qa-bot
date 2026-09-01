@@ -509,8 +509,13 @@ function updateFilterPreview() {
   badge.style.display = 'inline-flex';
 }
 async function start() {
-  busy = true;
   const f = getFilters();
+  if (!f.l1 && !f.l2 && !f.l3) {
+    const total = lastBookingsPreview.length || Number($('total').textContent) || 0;
+    const noun = total === 1 ? 'scenario' : 'scenarios';
+    if (!confirm('No L1 / L2 / L3 filter is applied — this will run all ' + total + ' ' + noun + '. Continue?')) return;
+  }
+  busy = true;
   const body = {
     llm_api_key: $('llmKey').value || null,
     llm_model: $('llmModel').value || null,

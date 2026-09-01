@@ -51,6 +51,20 @@ def build_default_scenarios(bookings: list[Booking]) -> list[Scenario]:
     return scenarios
 
 
+# Deliberately narrower than a bare "ticket" substring match -- scenario text
+# routinely mentions a ticket in passing ("already has a valid ticket for this
+# booking but also needs an invoice") without the scenario actually being about
+# ticket delivery. Matching on "ticket" alone misrouted invoice/payment-receipt
+# scenarios into the "ticket" node, which forces the grader to require
+# ticket-delivery language the bot was never actually asked to give.
+_TICKET_DELIVERY_MARKERS = (
+    "when will i receive", "when will i get", "haven't received", "have not received",
+    "hasn't received", "has not received", "receive my ticket", "receive the ticket",
+    "get my ticket", "resend", "re-send", "ticket delivery", "didn't get the ticket",
+    "did not get the ticket", "not received the ticket",
+)
+
+
 def _derive_node(scenario_text: str) -> str:
     text = scenario_text.lower()
     if "cancel" in text:
@@ -61,7 +75,7 @@ def _derive_node(scenario_text: str) -> str:
         return "reschedule"
     if "modify" in text or "change" in text:
         return "modify"
-    if "ticket" in text or "deliver" in text:
+    if any(marker in text for marker in _TICKET_DELIVERY_MARKERS):
         return "ticket"
     return "general"
 

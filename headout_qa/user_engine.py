@@ -41,22 +41,10 @@ class UserEngine(Protocol):
         ...
 
 
-def opening_line(booking) -> str:
-    # The Zendesk AI agent never sends a real, API-visible proactive greeting (its
-    # website-widget "instant reply" is a client-side widget feature with no
-    # backend message behind it -- confirmed by polling for one directly against
-    # the API), so waiting for one is pointless. Lead with booking ID + email
-    # up front instead, so the bot can identify the booking without a
-    # back-and-forth identity-verification detour eating into every scenario.
-    parts = [f"Booking ID {booking.booking_id}"]
-    if booking.email_id:
-        parts.append(f"email {booking.email_id}")
-    return "Hey, I need help. " + ", ".join(parts) + "."
-
-
-# The bot may still ask again anyway (e.g. to confirm) even though we already
-# volunteered this in the opener -- kept as a reactive safety net so the engine
-# answers rather than stalling on a repeated identity question.
+# The simulated customer leads with the real scenario question -- it never
+# volunteers booking ID / email up front. These markers let the engine react
+# and answer identity questions only when the bot actually asks for them,
+# instead of front-loading that information into every opener.
 _BOOKING_ID_ASK_MARKERS = (
     "booking id", "booking reference", "reference number", "confirmation number",
     "order id", "booking number",
@@ -77,7 +65,13 @@ class ScriptedUserEngine:
             return "I'd like to modify my booking. Can you help with that?"
         if node == "ticket":
             return "When will I receive my ticket?"
-        return "I want to cancel this booking. Is it cancellable?"
+        if node == "cancel":
+            return "I want to cancel this booking. Is it cancellable?"
+        # "general" (or any other bucket) has no fixed question of its own --
+        # scenario_text supplies the actual topic; this used to silently fall
+        # through to the cancel question above regardless of what the scenario
+        # was really about.
+        return "I have a question about my booking."
 
     def _real_ask(self, scenario: Scenario) -> str:
         text = self._question(scenario.node, scenario.booking)
@@ -90,16 +84,15 @@ class ScriptedUserEngine:
         bot_turns = [e for e in transcript if e.role == "bot"]
         booking = scenario.booking
         mood = booking.mood or "okay"
-        opener = opening_line(booking)
+        real_ask = self._real_ask(scenario)
 
         if not user_turns:
-            return opener
+            return real_ask
 
         last_bot_text = (bot_turns[-1].text or "").lower() if bot_turns else ""
         booking_id_answer = f"Sure, my booking ID is {booking.booking_id}."
         email_answer = f"It's {booking.email_id}." if booking.email_id else None
         given_texts = {e.text for e in user_turns}
-        real_ask = self._real_ask(scenario)
 
         # React to whatever the bot is actually asking for right now, whenever it
         # asks -- before the scenario starts, or mid-negotiation if it re-asks.
@@ -112,9 +105,9 @@ class ScriptedUserEngine:
             return real_ask
 
         # The real ask has been delivered; count only the substantive turns since
-        # then (skip the opener and any identity-verification answers) to decide
-        # the accept / pushback / escalate beat.
-        skip = {opener, booking_id_answer}
+        # then (skip any identity-verification answers) to decide the accept /
+        # pushback / escalate beat.
+        skip = {booking_id_answer}
         if email_answer:
             skip.add(email_answer)
         substantive = [t for t in (e.text for e in user_turns) if t not in skip]
@@ -202,8 +195,8 @@ class LLMUserEngine:
             "- Only claim information you would actually know as a customer.\n"
             "- You are the CUSTOMER in this conversation, never the support agent -- do not offer to "
             "investigate, escalate, or resolve anything; that is the agent's job, not yours.\n"
-            "- You already gave your booking ID and email in your very first message. Don't repeat "
-            "them again unless the agent specifically asks you to confirm or re-provide one.\n"
+            "- Don't volunteer your booking ID or email -- lead with your actual question or issue "
+            "instead, and only give your booking ID/email once the agent specifically asks for it.\n"
             "- When the goal of your scenario is resolved (or you've decided to leave/escalate), "
             f"end your reply with {END_MARKER} and nothing else after it.\n"
         )
@@ -228,8 +221,6 @@ class LLMUserEngine:
         return messages
 
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
-        if not any(e.role == "user" for e in transcript):
-            return opening_line(scenario.booking)
         payload = {
             "model": self.settings.llm_model,
             "messages": [
