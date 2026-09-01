@@ -82,7 +82,10 @@ class ScriptedUserEngine:
         booking = scenario.booking
         mood = booking.mood or "okay"
 
-        if not user_turns:
+        if not user_turns and not bot_turns:
+            # Nothing has happened yet -- no bot greeting arrived either, so we
+            # speak first with the generic opener. If the bot already greeted
+            # (bot_turns non-empty), fall through and react to that instead.
             return OPENING_LINE
 
         last_bot_text = (bot_turns[-1].text or "").lower() if bot_turns else ""
@@ -218,7 +221,10 @@ class LLMUserEngine:
         return messages
 
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
-        if not any(e.role == "user" for e in transcript):
+        if not any(e.role in ("user", "bot") for e in transcript):
+            # Nothing has happened yet -- no bot greeting arrived either -- so
+            # speak first with the generic opener. If the bot already greeted,
+            # fall through to the real LLM call and let it react to that.
             return OPENING_LINE
         payload = {
             "model": self.settings.llm_model,
