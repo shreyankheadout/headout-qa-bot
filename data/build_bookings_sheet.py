@@ -227,6 +227,21 @@ DETAIL_OVERRIDES = {
         "the tour operator called off the tour on the day, after the guest had already gone through with the booking",
 }
 
+# A handful of leaves need their whole situation/ask rewritten, not just the detail
+# phrase -- the generic L1-level framing doesn't actually match what the leaf is about
+# (e.g. "Ticket Redemption Details" is framed as "how do I use my ticket", but the
+# "Extended Validity" leaf is really about a guest who can't make their original date
+# and wants to know if the ticket's validity can be pushed out instead).
+LEAF_CONTEXT_OVERRIDES = {
+    ("Ticket Redemption Details", "Extended Validity", ""): dict(
+        situation="can no longer make the originally booked date for this ticket",
+        ask=(
+            "They open the chat explaining they can't make it on the scheduled date and ask directly "
+            "whether the ticket's validity can be extended so they can use it on a later date instead."
+        ),
+    ),
+}
+
 
 def humanize(text: str) -> str:
     text = text.strip()
@@ -246,10 +261,13 @@ def scenario_text_for(
         detail = DETAIL_OVERRIDES[(l1, l2, l3)]
     else:
         detail = humanize(l3) if l3 else (humanize(l2) if l2 else "")
-    ctx = L1_CONTEXT.get(l1, dict(
-        situation="has a question about their booking",
-        ask="They open the chat with their question and expect a clear answer.",
-    ))
+    if (l1, l2, l3) in LEAF_CONTEXT_OVERRIDES:
+        ctx = LEAF_CONTEXT_OVERRIDES[(l1, l2, l3)]
+    else:
+        ctx = L1_CONTEXT.get(l1, dict(
+            situation="has a question about their booking",
+            ask="They open the chat with their question and expect a clear answer.",
+        ))
 
     party = "a solo booking" if guest_count == "1" else f"a booking for {guest_count} guests"
     parts = [f"The guest has {party} for {tour_name} and {ctx['situation']}."]
@@ -291,6 +309,19 @@ def sanitize_pre_chat_state(l1: str, majority_status: str, majority_refund_statu
     return status, "N/A"
 
 
+# L1s whose scenario_text unconditionally asserts a temporal fact about the booking --
+# real per-leaf-mood majority data can disagree with that assertion for a fallback slice
+# with no grounded examples (as happened for "Unsatisfactory Tour Experience": the
+# narrative says "already went on the tour" but the only real signal available was a
+# single unrelated field, and the majority vote came out PENDING). Force bookingStatus to
+# agree with what the text itself claims, for every row of that L1, rather than let a
+# thin data slice silently contradict the narrative every LLM guest is given.
+L1_ASSERTED_STATUS = {
+    "Service Issues": "COMPLETED",  # narrative: "already went on the tour"
+    "Payment Failure": "PENDING",  # narrative: "the payment didn't go through cleanly"
+}
+
+
 def main():
     with open(DATA_PATH) as f:
         groups = json.load(f)
@@ -313,12 +344,22 @@ def main():
         majority_status, majority_refund_status = sanitize_pre_chat_state(
             l1, majority_status, majority_refund_status
         )
+        if l1 in L1_ASSERTED_STATUS:
+            majority_status = L1_ASSERTED_STATUS[l1]
+
+        majority_is_cancellable = yn_to_bool(fields.get("is_cancellable"))
+        majority_is_reschedulable = yn_to_bool(fields.get("is_reschedulable"))
 
         # Deliberate, mood-driven ground truth for the node's core fact -- mirrors the
-        # existing hardcoded frustration-arc pattern (denial -> guest gets upset).
+        # existing hardcoded frustration-arc pattern (denial -> guest gets upset). For
+        # every OTHER fact (the guest isn't being tested on it, so it isn't mood-driven),
+        # use the real per-leaf-mood majority vote as background truth instead of forcing
+        # it to a blanket False -- grader.py checks these opportunistically whenever the
+        # bot mentions them, even outside the scenario's own node, so an unconditional
+        # False would silently fail the bot on a fact that was never actually false.
         approved = mood in ("happy", "okay")
-        is_cancellable = approved if node == "cancel" else False
-        is_reschedulable = approved if node == "modify" else False
+        is_cancellable = approved if node == "cancel" else bool(majority_is_cancellable)
+        is_reschedulable = approved if node == "modify" else bool(majority_is_reschedulable)
         has_extended_validity = approved if node == "extend" else (majority_validity != "NOT_EXTENDABLE")
         validity_type = "UNTIL_DATE" if has_extended_validity else "NOT_EXTENDABLE"
 

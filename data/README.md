@@ -55,6 +55,24 @@ leaves (including the "Fradulent" placeholder) **times all 4 moods**
   cancellable" when the real question is a refund follow-up, which
   `grader.py` doesn't have a dedicated fact for) onto `general`/`ticket` as
   appropriate per leaf.
+- Widened the same audit past cancellation specifically, per feedback: `isCancellable`/
+  `isReschedulable` were being flatly forced to `FALSE` for every row where that wasn't
+  the node under test (only `hasExtendedValidity` was already grounded in real data for
+  its non-tested rows) — fixed so all three now use the real per-leaf-mood majority vote
+  as background truth when not the fact being deliberately tested by mood. This matters
+  because `grader.py` checks these opportunistically whenever the bot mentions them, even
+  outside the scenario's own node, so a blanket `FALSE` risked failing the bot on a fact
+  that was never actually false. Also caught two more narrative/field contradictions:
+  "Service Issues" claims the guest "already went on the tour" but had `PENDING` rows
+  (forced to `COMPLETED`), and "Payment Failure" claims the payment "didn't go through
+  cleanly" but every row said `COMPLETED` (forced to `PENDING`). And rewrote the
+  "Extended Validity" leaf's situation/ask — it was inheriting the generic "how do I
+  redeem my ticket" framing from its L1 with the extension fact just bolted on at the
+  end; now it properly asks whether the ticket's validity can be pushed to a later date.
+  Full audit re-run clean: 0 fact-awareness mismatches, 0 forward-looking-state
+  violations, 0 cross-field pair mismatches (`ticketValidityType`/`UntilDate`,
+  `oopCancellationAllowed`/`isCancellable`, `alternatesStatus`/`alternatesLink`), all 77
+  leaves still carry all 4 moods.
 - Fixed a real bug this surfaced along the way: `scenarios.py` derives which
   fact gets graded by scanning `scenario_text` for keywords, and a couple of
   leaf labels ("Flight/train Cancellation" under Modification Request, "Tour
