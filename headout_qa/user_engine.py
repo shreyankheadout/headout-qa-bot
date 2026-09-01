@@ -21,6 +21,13 @@ _META_INSTRUCTION_MARKERS = (
     "automated tester", "act as a customer", "act as the customer", "you are an ai",
     "you are a bot", "simulate a customer", "role-play as", "role play as",
     "initiate a conversation to test",
+    # Current authoring style (data/build_bookings_sheet.py) writes third-person
+    # persona/context prose for the LLMUserEngine's system prompt -- "The guest
+    # has a booking for X and wants to... Mood: ..." -- which doesn't match the
+    # older imperative markers above but is just as much QA-authoring content,
+    # not something a real customer would ever type into a chat.
+    "the guest has", "the guest wants", "the guest reports", "the guest is",
+    "they open the chat", "mood:",
 )
 
 

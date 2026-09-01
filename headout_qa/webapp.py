@@ -466,6 +466,15 @@ async def save_llm(payload: LlmSettingsPayload) -> dict:
         updates["LLM_API_KEY"] = payload.api_key.strip()
     if payload.model and payload.model.strip():
         updates["LLM_MODEL"] = payload.model.strip()
+    # An API key saved here without also persisting the provider is silently
+    # inert: build_user_engine()/Grader only switch on from LLM_PROVIDER, and
+    # /api/start only sets it for that one call if the key is re-sent in the
+    # payload -- a key saved through this settings endpoint (and never resent)
+    # would otherwise leave every subsequent run on the scripted engine and
+    # checklist-only grading despite the UI showing a model configured.
+    resulting_key = updates.get("LLM_API_KEY") or Settings().llm_api_key
+    if resulting_key and Settings().llm_provider not in ("openai", "deepseek", "compatible"):
+        updates["LLM_PROVIDER"] = "compatible"
     if updates:
         try:
             _update_env(updates)
