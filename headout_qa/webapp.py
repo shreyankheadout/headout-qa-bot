@@ -209,8 +209,11 @@ async def _fetch_data_summary(settings: Settings) -> dict:
             "l1": _dist("l1"),
             "l2": _dist("l2"),
             "l3": _dist("l3"),
+            "mood": _dist("mood"),
         },
-        "bookings_preview": [{"l1": b.l1 or "", "l2": b.l2 or "", "l3": b.l3 or ""} for b in bookings],
+        "bookings_preview": [
+            {"l1": b.l1 or "", "l2": b.l2 or "", "l3": b.l3 or "", "mood": b.mood or ""} for b in bookings
+        ],
     }
 
 
@@ -259,6 +262,7 @@ def _scenario_status(r: ScenarioRun) -> dict:
         "l1": r.l1,
         "l2": r.l2,
         "l3": r.l3,
+        "mood": r.mood,
         "status": r.status,
         "passed": r.grade.passed if r.grade else None,
         "escalated": r.escalated,

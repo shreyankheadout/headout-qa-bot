@@ -29,6 +29,7 @@ class ScenarioRun:
     l1: str | None = None
     l2: str | None = None
     l3: str | None = None
+    mood: str | None = None
     ticket_id: int | None = None
     ticket_url: str | None = None
     grade: Grade | None = None
@@ -140,6 +141,7 @@ class Orchestrator:
             l1=scenario.booking.l1,
             l2=scenario.booking.l2,
             l3=scenario.booking.l3,
+            mood=scenario.booking.mood,
             started_at=_now(),
         )
         events: list[Event] = []
@@ -250,6 +252,7 @@ class Orchestrator:
             "l1": run.l1,
             "l2": run.l2,
             "l3": run.l3,
+            "mood": run.mood,
             "scenario_text": scenario.scenario_text,
             "pass_criteria": scenario.pass_criteria,
             "ticket_id": run.ticket_id,
