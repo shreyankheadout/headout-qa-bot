@@ -20,7 +20,7 @@ from .zendesk import ZendeskClient
 # speaks first. Some bot configs proactively welcome the guest on handoff; if one
 # arrives within this window, the engines pick up from it instead of the generic
 # opener stepping on it.
-GREETING_WAIT_SECONDS = 10.0
+GREETING_WAIT_SECONDS = 30.0
 
 
 @dataclass
