@@ -52,6 +52,7 @@ class ScriptedUserEngine:
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
         user_turns = [e for e in transcript if e.role == "user"]
         booking = scenario.booking
+        mood = booking.mood or "okay"
         if not user_turns:
             greeting = f"Hi, I need help with my booking {booking.booking_id}."
             # Surface the sheet's scenario-specific context in the opening message so
@@ -63,14 +64,45 @@ class ScriptedUserEngine:
         if len(user_turns) == 1:
             return self._question(scenario.node, booking)
         if len(user_turns) == 2:
-            if scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable:
+            denied = scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable
+            if denied and mood == "angry":
+                return "This is unacceptable. I need this sorted out right now."
+            if denied and mood == "frustrated":
                 return "That's really frustrating. I've never had this problem before. Is there anything you can do?"
+            if mood == "happy":
+                return "No worries, thank you so much for the help!"
             return "Okay, please go ahead with that."
         if len(user_turns) == 3:
-            if scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable:
+            denied = scenario.node in ("cancel", "extend", "modify", "reschedule") and not booking.is_cancellable
+            if denied and mood in ("angry", "frustrated"):
                 return "I'd like to speak to a supervisor about this."
             return None
         return None
+
+
+# Mood -> concrete behavioral instruction for the LLM playing the guest. This is the
+# thing that actually varies conversational behavior; scenario_text supplies the
+# situational content (what happened), mood supplies the delivery (how they react).
+MOOD_INSTRUCTIONS = {
+    "happy": (
+        "Your mood is happy: you're relaxed and easygoing about this. Accept the agent's first "
+        "reasonable answer without pushing back, and thank them warmly once it's resolved."
+    ),
+    "okay": (
+        "Your mood is okay/neutral: you're calm and matter-of-fact. State your question plainly "
+        "and accept a clear, correct answer without much back-and-forth."
+    ),
+    "frustrated": (
+        "Your mood is frustrated: this situation is annoying you. If the agent's first answer "
+        "doesn't actually resolve things, push back once with a bit of edge before accepting a "
+        "clear resolution or, if none comes, asking to speak to a supervisor."
+    ),
+    "angry": (
+        "Your mood is angry: you're upset and impatient from your very first message. Push back "
+        "firmly at least twice if you're not immediately satisfied, and explicitly threaten to "
+        "ask for a supervisor if the agent doesn't resolve this quickly."
+    ),
+}
 
 
 class LLMUserEngine:
@@ -99,10 +131,12 @@ class LLMUserEngine:
             ]
         )
         scenario_text = scenario.scenario_text or "The guest needs help with their booking."
+        mood_instruction = MOOD_INSTRUCTIONS.get(booking.mood or "okay", MOOD_INSTRUCTIONS["okay"])
         return (
             "You are role-playing as a real customer contacting Headout support about your booking.\n"
             f"Booking context (your booking):\n{facts}\n\n"
             f"Your scenario:\n{scenario_text}\n\n"
+            f"Your mood:\n{mood_instruction}\n\n"
             "Rules:\n"
             "- Speak naturally as a customer, 1-2 short sentences per message.\n"
             "- Do not reveal you are a test or a bot.\n"

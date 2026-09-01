@@ -75,6 +75,7 @@ def _load_scenarios(run_dir: Path) -> list[ScenarioRun]:
                 l1=data.get("l1"),
                 l2=data.get("l2"),
                 l3=data.get("l3"),
+                mood=data.get("mood"),
                 conversation_id=data.get("conversation_id"),
                 user_id=data.get("user_id"),
                 ticket_id=data.get("ticket_id"),
@@ -157,6 +158,23 @@ def build_report(result: RunResult | None, run_dir: Path) -> Path:
             f"<td>{tp_escalated}</td><td>{tp_incomplete}</td></tr>"
         )
 
+    by_mood: dict[str, list[ScenarioRun]] = defaultdict(list)
+    for s in scenarios:
+        by_mood[s.mood or "(blank)"].append(s)
+    mood_rows: list[str] = []
+    for mood in sorted(by_mood):
+        mood_runs = by_mood[mood]
+        mood_total = len(mood_runs)
+        mood_passed = sum(1 for r in mood_runs if r.grade and r.grade.passed)
+        mood_failed = sum(1 for r in mood_runs if r.grade and not r.grade.passed)
+        mood_escalated = sum(1 for r in mood_runs if r.escalated)
+        mood_incomplete = mood_total - mood_passed - mood_failed
+        mood_rows.append(
+            f"<tr><td>{escape(mood)}</td>"
+            f"<td>{mood_total}</td><td>{mood_passed}</td><td>{mood_failed}</td>"
+            f"<td>{mood_escalated}</td><td>{mood_incomplete}</td></tr>"
+        )
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -201,6 +219,15 @@ details summary {{ cursor: pointer; color: #1a73e8; }}
 </thead>
 <tbody>
 {chr(10).join(touchpoint_rows) if touchpoint_rows else '<tr><td colspan="6">no scenarios</td></tr>'}
+</tbody>
+</table>
+<h2 style="font-size:1.1rem;margin-top:1.5rem;">By guest mood</h2>
+<table>
+<thead>
+<tr><th>Mood</th><th>Total</th><th>Passed</th><th>Failed</th><th>Escalated</th><th>Incomplete</th></tr>
+</thead>
+<tbody>
+{chr(10).join(mood_rows) if mood_rows else '<tr><td colspan="6">no scenarios</td></tr>'}
 </tbody>
 </table>
 <h2 style="font-size:1.1rem;margin-top:1.5rem;">By scenario</h2>

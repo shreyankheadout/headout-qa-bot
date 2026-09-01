@@ -31,6 +31,7 @@ class Booking:
     l1: str | None = None
     l2: str | None = None
     l3: str | None = None
+    mood: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -62,6 +63,7 @@ class Booking:
             l1=_clean(_pick(row, "L1", "l1")),
             l2=_clean(_pick(row, "L2", "l2")),
             l3=_clean(_pick(row, "L3", "l3")),
+            mood=_parse_mood(_pick(row, "mood", "Mood")),
             raw={k: _str(v) for k, v in row.items()},
         )
 
@@ -82,6 +84,16 @@ def _str(value: Any) -> str:
 def _clean(value: Any) -> str | None:
     value = _str(value)
     return value if value else None
+
+
+# Guest mood as authored in the sheet's `mood` column, driving how the simulated
+# customer behaves (see user_engine.py) independently of which fact is being tested.
+VALID_MOODS = ("happy", "okay", "frustrated", "angry")
+
+
+def _parse_mood(value: Any) -> str | None:
+    v = _str(value).lower()
+    return v if v in VALID_MOODS else None
 
 
 def _parse_bool(value: Any) -> bool | None:
