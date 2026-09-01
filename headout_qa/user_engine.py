@@ -41,13 +41,22 @@ class UserEngine(Protocol):
         ...
 
 
-OPENING_LINE = "Hey there, I need help."
+def opening_line(booking) -> str:
+    # The Zendesk AI agent never sends a real, API-visible proactive greeting (its
+    # website-widget "instant reply" is a client-side widget feature with no
+    # backend message behind it -- confirmed by polling for one directly against
+    # the API), so waiting for one is pointless. Lead with booking ID + email
+    # up front instead, so the bot can identify the booking without a
+    # back-and-forth identity-verification detour eating into every scenario.
+    parts = [f"Booking ID {booking.booking_id}"]
+    if booking.email_id:
+        parts.append(f"email {booking.email_id}")
+    return "Hey, I need help. " + ", ".join(parts) + "."
 
-# What the bot asks for while it's still identifying the booking, before the real
-# scenario even starts -- the scripted engine must answer these reactively (only
-# when actually asked) rather than dumping booking ID/email into the opener, or
-# front-loading them, which isn't how a real customer chats and skips exercising
-# the bot's own identity-verification flow.
+
+# The bot may still ask again anyway (e.g. to confirm) even though we already
+# volunteered this in the opener -- kept as a reactive safety net so the engine
+# answers rather than stalling on a repeated identity question.
 _BOOKING_ID_ASK_MARKERS = (
     "booking id", "booking reference", "reference number", "confirmation number",
     "order id", "booking number",
@@ -81,12 +90,10 @@ class ScriptedUserEngine:
         bot_turns = [e for e in transcript if e.role == "bot"]
         booking = scenario.booking
         mood = booking.mood or "okay"
+        opener = opening_line(booking)
 
-        if not user_turns and not bot_turns:
-            # Nothing has happened yet -- no bot greeting arrived either, so we
-            # speak first with the generic opener. If the bot already greeted
-            # (bot_turns non-empty), fall through and react to that instead.
-            return OPENING_LINE
+        if not user_turns:
+            return opener
 
         last_bot_text = (bot_turns[-1].text or "").lower() if bot_turns else ""
         booking_id_answer = f"Sure, my booking ID is {booking.booking_id}."
@@ -107,7 +114,7 @@ class ScriptedUserEngine:
         # The real ask has been delivered; count only the substantive turns since
         # then (skip the opener and any identity-verification answers) to decide
         # the accept / pushback / escalate beat.
-        skip = {OPENING_LINE, booking_id_answer}
+        skip = {opener, booking_id_answer}
         if email_answer:
             skip.add(email_answer)
         substantive = [t for t in (e.text for e in user_turns) if t not in skip]
@@ -195,8 +202,8 @@ class LLMUserEngine:
             "- Only claim information you would actually know as a customer.\n"
             "- You are the CUSTOMER in this conversation, never the support agent -- do not offer to "
             "investigate, escalate, or resolve anything; that is the agent's job, not yours.\n"
-            "- Do not volunteer your booking ID or email upfront. Only give either one if the agent "
-            "actually asks for it -- and then just answer that, don't restate your whole scenario.\n"
+            "- You already gave your booking ID and email in your very first message. Don't repeat "
+            "them again unless the agent specifically asks you to confirm or re-provide one.\n"
             "- When the goal of your scenario is resolved (or you've decided to leave/escalate), "
             f"end your reply with {END_MARKER} and nothing else after it.\n"
         )
@@ -221,11 +228,8 @@ class LLMUserEngine:
         return messages
 
     async def next_message(self, scenario: Scenario, transcript: list[Event]) -> str | None:
-        if not any(e.role in ("user", "bot") for e in transcript):
-            # Nothing has happened yet -- no bot greeting arrived either -- so
-            # speak first with the generic opener. If the bot already greeted,
-            # fall through to the real LLM call and let it react to that.
-            return OPENING_LINE
+        if not any(e.role == "user" for e in transcript):
+            return opening_line(scenario.booking)
         payload = {
             "model": self.settings.llm_model,
             "messages": [

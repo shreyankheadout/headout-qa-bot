@@ -16,12 +16,6 @@ from .transcript import Event, TranscriptStore
 from .user_engine import UserEngine, build_user_engine
 from .zendesk import ZendeskClient
 
-# How long to give the AI agent to send an unprompted greeting before the guest
-# speaks first. Some bot configs proactively welcome the guest on handoff; if one
-# arrives within this window, the engines pick up from it instead of the generic
-# opener stepping on it.
-GREETING_WAIT_SECONDS = 30.0
-
 
 @dataclass
 class ScenarioRun:
@@ -170,7 +164,6 @@ class Orchestrator:
             events.append(Event(role="system", text="control passed to AI agent", ts=_now()))
 
             known_bot_ids: set[str] = set()
-            await self._wait_for_greeting(conversation_id, known_bot_ids, events)
 
             max_turns = scenario.max_turns or self.settings.max_turns
             turns = 0
@@ -276,21 +269,6 @@ class Orchestrator:
         self.store.write_scenario(payload)
         self.store.append_events(run.scenario_id, events)
         return run
-
-    async def _wait_for_greeting(
-        self, conversation_id: str, known_bot_ids: set[str], events: list[Event]
-    ) -> None:
-        deadline = time.monotonic() + GREETING_WAIT_SECONDS
-        while time.monotonic() < deadline:
-            messages = await self.sunco.list_messages(conversation_id)
-            new = [m for m in messages if m.is_bot and m.id not in known_bot_ids]
-            if new:
-                for message in new:
-                    known_bot_ids.add(message.id)
-                    text = message.text or f"[{message.content_type or 'unknown'}]"
-                    events.append(Event(role="bot", text=text, ts=message.received, message_id=message.id, source=message.source_type))
-                return
-            await asyncio.sleep(self.settings.poll_interval_seconds)
 
     async def _wait_for_bot(
         self, conversation_id: str, known_bot_ids: set[str], events: list[Event]
